@@ -25,6 +25,8 @@ This is a library for handling files which contain sources.
 from typing import Dict, List, Tuple
 from pathlib import Path
 
+import dbus
+
 from .source import Source
 from .deb import DebLine
 from . import util
@@ -67,7 +69,24 @@ class SourceFile:
         self.source_path: Path
         self.legacy: bool = False
     
-    def generate_output_file(self) -> str:
+    def save_to_disk(self, save:bool = True):
+        """ Saves the source to disk."""
+        if not self.filename:
+            raise SourceFileError('No filename to save to specified')
+        full_path = util.get_sources_dir() / self.filename
+
+        if save:
+            try:
+                with open(full_path, mode='w') as sources_file:
+                    sources_file.write(self.generate_output())
+            except PermissionError:
+                bus = dbus.SystemBus()
+                privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+                privileged_object.output_file_to_disk(self.filename, self.generate_output())
+                privileged_object.exit()
+        
+    
+    def generate_output(self) -> str:
         """ Generate output for writing to a file on disk.
 
         Returns:
@@ -254,3 +273,11 @@ class SourceFile:
             raw_822 = []
             item += 1
             self.comments[item] = ''
+
+    @property 
+    def filename(self):
+        ext = 'sources'
+        if self.legacy:
+            ext = 'list'
+        
+        return f'{self.ident}.{ext}'
