@@ -43,7 +43,7 @@ class SourceFileError(Exception):
 
 class SourceFile:
     """ A class for handling source files (files which contain sources).
-    
+
     Attributes:
         :ident str: the name of the file (less the extension).
         :comments dict[int, str]: A dict of comments in the file, with line
@@ -62,67 +62,40 @@ class SourceFile:
         """
         self.ident: str = ident
         self.comments: Dict[int, str] = {}
-        self.sources: List[Source] = []
+        self.sources: Dict[int, Source] = {}
         self.legacy_sources: Dict[int, DebLine] = {}
         self.source_path: Path
-        self.legacy: bool = False 
+        self.legacy: bool = False
     
-    def parse_comments(self, source_data: List[str]) -> List[str]:
-        """ Extracts comments from the source file and saves them.
+    def generate_output_file(self) -> str:
+        """ Generate output for writing to a file on disk.
 
-        Arguments:
-            :source_data list: The contents of the source file.
+        Returns:
+            :str: The formatted string data, with newlines specified as \n
         """
-        line_num: int = 0
-        for line in source_data:
-            # Find commented out lines
-            if line.startswith('#'):
-                # Exclude disabled legacy deblines.
-                name_line = 'X-Repolib-Name' in line
-                if not util.validate_debline(line) and not name_line:
-                    self.comments[line_num] = line
-                    source_data[line_num] = ''
-            
-            # Empty lines count as comments
-            if line == '\n':
-                self.comments[line_num] = line
-
-            line_num += 1
+        items = {}
+        output:str = ''
         
-        return source_data
-    
-    def parse_legacy(self, source_data: List[str]):
-        """ Parse the legacy deblines from the file and save their line numbers
+        for comment in self.comments:
+            items[comment] = self.comments[comment]
+        
+        if self.legacy:
+            for source in self.legacy_sources:
+                items[source] = self.legacy_sources[source].make_debline()
+        
+        else:
+            for source in self.sources:
+                items[source] = self.sources[source]
+        
+        keys = sorted(items.keys())
+        for item in keys:
+            output += f'{items[item]}\n'
+        
+        return output
 
-        Arguments:
-            :source_data list: The contents of the source file.
-        """
-        line_num: int = 0
-        for line in source_data:
-            enabled: bool = True
-            src: bool = False
-
-            # Find Repolib names
-            if 'X-Repolib-Name' in line:
-                name = ':'.join(line.split(':')[1:])
-                name = name.strip()
-            
-            # disable commented lines
-            if line.startswith('#'):
-                enabled = False
-                line = line.replace('#', '')
-            
-            print(line)
-            if util.validate_debline(line.strip()):
-                source = DebLine(line)
-                source.enabled = enabled
-                self.legacy_sources[line_num] = source
-            
-            line_num += 1
-    
     def parse_file(self, ident: str = ''):
-        """ Parses the contents of the file. 
-        
+        """ Parses the contents of the file.
+
         Optionally use ident if one hasn't been supplied yet.
 
         Arguments:
@@ -131,11 +104,11 @@ class SourceFile:
         """
         if not self.ident:
             self.ident = ident
-        
+
         filestem: str = self.ident
         if ident:
             filestem: str
-        
+
         if not filestem:
             raise SourceFileError('No filename provided to load.')
 
@@ -146,9 +119,138 @@ class SourceFile:
 
         with open(self.source_path, 'r') as source_file:
             source_list = source_file.readlines()
-        
-        source_list = self.parse_comments(source_list)
-        
-        if self.legacy:
-            self.parse_legacy(source_list)
-        
+
+        item:int = 0
+        raw_822: List[str] = []
+        parsing_deb822: bool = False
+        name:str = ''
+        source_count: int = 0
+
+        for line in source_list:
+
+            if not parsing_deb822:
+                commented = line.startswith('#')
+                # Find commented out lines
+                if commented:
+                    # Exclude disabled legacy deblines.
+                    name_line = line.startswith('## X-Repolib-Name: ')
+                    valid_legacy = util.validate_debline(line.strip())
+                    if not valid_legacy and not name_line:
+                        self.comments[item] = line.strip()
+
+                    elif valid_legacy:
+                        if not self.legacy:
+                            raise SourceFileError(
+                                f'File {self.ident} is a Legacy file, but '
+                                'contains DEB822-format sources. This is not '
+                                'allowed. Please fix the file manually.'
+                            )
+                        source = DebLine(line)
+                        if name:
+                            source.name = name
+                            if source.types == [util.AptSourceType.SOURCE]:
+                                source.name = f'{name} Source code'
+                        source.enabled = False
+                        source.file = self
+                        if source_count > 0:
+                            source.ident = f'{self.ident}-{source_count}'
+                            source.name += f' {source_count}'
+                        source_count += 1
+                        self.legacy_sources[item] = source
+
+                    elif name_line:
+                        name = ':'.join(line.split(':')[1:])
+                        name = name.strip()
+
+                # Find Legacy lines
+                elif not commented:
+                    if util.validate_debline(line.strip()):
+                        if not self.legacy:
+                            raise SourceFileError(
+                                f'File {self.ident} is a Legacy file, but contains'
+                                'DEB822-format sources. This is not allowed. Please '
+                                'fix the file manually.'
+                            )
+                        source = DebLine(line)
+                        if name:
+                            source.name = name
+                            if source.types == [util.AptSourceType.SOURCE]:
+                                source.name = f'{name} Source code'
+                        source.enabled = True
+                        source.file = self
+                        if source_count > 0:
+                            source.ident = f'{self.ident}-{source_count}'
+                            source.name += f' {source_count}'
+                        source_count += 1
+                        self.legacy_sources[item] = source
+
+                # Empty lines count as comments
+                if line.strip() == '':
+                    self.comments[item] = line.strip()
+
+                # Find Deb822 sources
+                valid_keys = [
+                    'X-Repolib-Name:',
+                    'X-Repolib-Default-Mirror:',
+                    'Enabled:',
+                    'Types:',
+                    'URIs:',
+                    'Suites:',
+                    'Components:',
+                    'Architectures:',
+                    'Languages:',
+                    'Targets:',
+                    'PDiffs:',
+                    'By-Hash:',
+                    'Allow-Insecure:',
+                    'Allow-Weak:',
+                    'Allow-Downgrade-To-Insecure:',
+                    'Trusted:',
+                    'Signed-By:',
+                    'Check-Valid-Until:',
+                    'Valid-Until-Min:',
+                    'Valid-Until-Max:',
+                ]
+                # Valid DEB822 sources may start with any key.
+                for key in valid_keys:
+                    if line.startswith(key):
+                        if self.legacy:
+                            raise SourceFileError(
+                                f'File {self.ident} is a DEB822-format file, but '
+                                'contains legacy sources. This is not allowed. '
+                                'Please fix the file manually.'
+                            )
+                        parsing_deb822 = True
+                        raw_822.append(item)
+                        raw_822.append(line.strip())
+                        continue
+
+                item += 1
+
+            elif parsing_deb822:
+                # 822 Sources are ended with a blank line
+                if line.strip() == '':
+                    parsing_deb822 = False
+                    source = Source()
+                    source.load_from_list(raw_822[1:])
+                    source.file = self
+                    if source_count > 0:
+                        source.ident = f'{self.ident}-{source_count}'
+                        source.name += f' {source_count}'
+                    source_count += 1
+                    self.sources[raw_822[0]] = source
+                    raw_822 = []
+                    item += 1
+                    self.comments[item] = ''
+
+                else:
+                    raw_822.append(line.strip())
+
+        if raw_822:
+            parsing_deb822 = False
+            source = Source()
+            source.load_from_list(raw_822[1:])
+            self.sources[raw_822[0]] = source
+            raw_822 = []
+            item += 1
+            self.comments[item] = ''

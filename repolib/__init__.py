@@ -23,6 +23,7 @@ along with RepoLib.  If not, see <https://www.gnu.org/licenses/>.
 from .source import Source
 from .system import SystemSource
 from .legacy_deb import LegacyDebSource
+from .file import SourceFile
 from .deb import DebLine
 from .ppa import PPALine
 from .util import AptSourceEnabled, AptSourceType, RepoError

@@ -108,6 +108,15 @@ class Source(deb822.Deb822):
 
         with open(full_path, mode='r') as source_file:
             super().__init__(source_file)
+    
+    def load_from_list(self, data):
+        """ Loads the data from a list of strings.
+
+        Arguments:
+            :List[str] data: The list of strings to load from.
+        """
+        self.init_values()
+        super().__init__(sequence=data)
 
     def save_to_disk(self, save=True):
         """ Saves the source to disk."""
@@ -246,6 +255,8 @@ class Source(deb822.Deb822):
 
         for component in self.components:
             line += f'{component} '
+        
+        line += f' ## X-Repolib-Name: {self.name}'
 
         return line.strip()
 

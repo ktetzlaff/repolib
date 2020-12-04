@@ -79,6 +79,11 @@ class DebLine(source.Source):
     def _parse_debline(self, line):
         self.init_values()
 
+        if '# X-Repolib-Name: ' in line:
+            name_line = line.replace('# X-Repolib-Name: ', '\x05')
+            name_list = name_line.split('\x05')
+            self.name = name_list[-1]
+
         self._validate(line)
         # Enabled vs. Disabled
         self.enabled = True

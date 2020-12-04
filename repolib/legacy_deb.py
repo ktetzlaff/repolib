@@ -186,7 +186,6 @@ class LegacyDebSource(source.Source):
             if line and not line.startswith('#'):
                 line = f'#{line}'
         toprint = '\n'.join(comment)
-        toprint += f'## X-Repolib-Name: {self.name}\n'
 
         for suite in self.suites:
             for uri in self.uris:
