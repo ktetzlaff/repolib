@@ -27,6 +27,7 @@ import traceback
 from ..deb import DebLine
 from ..legacy_deb import LegacyDebSource
 from ..source import Source
+from ..file import SourceFile
 from ..util import get_sources_dir, RepoError
 from .. import get_all_sources
 
@@ -138,7 +139,7 @@ class List(command.Command):
                 print('\nDetails for the failing files:')
                 for err in errors:
                     print(f'{err}:')
-                    with open(err) as error_file:
+                    with open(err.filename) as error_file:
                         print(error_file.read())
                     print('Stack Trace:')
                     traceback.print_tb(errors[err].__traceback__)

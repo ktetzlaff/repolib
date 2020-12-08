@@ -64,30 +64,34 @@ def get_all_sources(get_system=False, get_exceptions=False):
     for file in sources_files:
         if file.stem == 'system':
             continue
-        source = Source(filename=file.name)
+        source_file  = SourceFile(filename=file.name)
         try:
-            source.load_from_file()
+            source_file.parse_file()
         except Exception as err:
-            errors[file.stem] = err
-        else:
-            # The source should not be listed if it is empty
-            has_uris = len(source.uris) > 0
-            has_suites = len(source.suites) > 0
-            if has_uris and has_suites:
-                sources.append(source)
-
-    for file in list_files:
-        source = LegacyDebSource(filename=file.name)
-        try:
-            source.load_from_file()
-        except Exception as err:
+            source_file.parse_file()
             errors[file] = err
         else:
             # The source should not be listed if it is empty
-            has_uris = len(source.uris) > 0
-            has_suites = len(source.suites) > 0
-            if has_uris and has_suites:
-                sources.append(source)
+            for source in source_file.sources():
+                has_uris = len(source.uris) > 0
+                has_suites = len(source.suites) > 0
+                if has_uris and has_suites:
+                    sources.append(source)
+
+    for file in list_files:
+        source_file = SourceFile(filename=file.name)
+        try:
+            source_file.parse_file()
+        except Exception as err:
+            source_file.parse_file()
+            errors[file] = err
+        else:
+            # The source should not be listed if it is empty
+            for source in source_file.sources():
+                has_uris = len(source.uris) > 0
+                has_suites = len(source.suites) > 0
+                if has_uris and has_suites:
+                    sources.append(source)
 
     if get_exceptions:
         return sources, errors

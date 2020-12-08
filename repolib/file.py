@@ -70,7 +70,8 @@ class SourceFile:
             filename = filename.replace('.list', '')
             filename = filename.replace('.sources', '')
             self.ident = filename
-        self.ident: str = ident
+        if ident:
+            self.ident: str = ident
         self.comments: Dict[int, str] = {}
         self.deb_sources: Dict[int, Source] = {}
         self.legacy_sources: Dict[int, DebLine] = {}
@@ -194,7 +195,7 @@ class SourceFile:
             filestem: str
 
         if not filestem:
-            raise SourceFileError('No filename provided to load.')
+            raise SourceFileError(f'No filename provided to load: {self.ident}')
 
         self.source_path = util.get_source_path(filestem)
 
