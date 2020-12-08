@@ -64,7 +64,7 @@ class SourceFile:
         """
         self.ident: str = ident
         self.comments: Dict[int, str] = {}
-        self.sources: Dict[int, Source] = {}
+        self.deb_sources: Dict[int, Source] = {}
         self.legacy_sources: Dict[int, DebLine] = {}
         self.source_path: Path
         self.legacy: bool = False
@@ -84,6 +84,20 @@ class SourceFile:
                 privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
                 privileged_object.output_file_to_disk(self.filename, self.generate_output())
                 privileged_object.exit()
+
+    def sources(self):
+        """ A generator that yields all sources.
+
+        This returns all sources regardless of whether this is a legacy or a 
+        new-format file.
+        """
+        if self.legacy:
+            for i in self.legacy_sources:
+                yield self.legacy_sources[i]
+        
+        else:
+            for i in self.deb_sources:
+                yield self.deb_sources[i]
     
     def get_source_by_ident(self, ident: str) -> Source:
         """ Get a source with the specified index.
@@ -94,11 +108,8 @@ class SourceFile:
         Returns: 
             The :Source: object.
         """
-        source_list = self.sources
-        if self.legacy:
-            source_list = self.legacy_sources
         
-        for source in iter(source_list.values()):
+        for source in self.sources():
             if source.ident == ident:
                 return source
         
@@ -149,8 +160,8 @@ class SourceFile:
                 items[source] = self.legacy_sources[source].make_debline()
         
         else:
-            for source in self.sources:
-                items[source] = self.sources[source]
+            for source in self.deb_sources:
+                items[source] = self.deb_sources[source]
         
         keys = sorted(items.keys())
         for item in keys:
@@ -306,7 +317,7 @@ class SourceFile:
                         source.ident = f'{self.ident}-{source_count}'
                         source.name += f' {source_count}'
                     source_count += 1
-                    self.sources[raw_822[0]] = source
+                    self.deb_sources[raw_822[0]] = source
                     raw_822 = []
                     item += 1
                     self.comments[item] = ''
@@ -318,7 +329,7 @@ class SourceFile:
             parsing_deb822 = False
             source = Source()
             source.load_from_list(raw_822[1:])
-            self.sources[raw_822[0]] = source
+            self.deb_sources[raw_822[0]] = source
             raw_822 = []
             item += 1
             self.comments[item] = ''
