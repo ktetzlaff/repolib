@@ -283,7 +283,7 @@ class Source(deb822.Deb822):
 
     @name.setter
     def name(self, name):
-        self['X-Repolib-Name'] = name
+        self['X-Repolib-Name'] = name.strip()
 
     @property
     def ident(self):

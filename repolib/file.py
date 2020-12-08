@@ -84,7 +84,53 @@ class SourceFile:
                 privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
                 privileged_object.output_file_to_disk(self.filename, self.generate_output())
                 privileged_object.exit()
+    
+    def get_source_by_ident(self, ident: str) -> Source:
+        """ Get a source with the specified index.
+
+        Arguments:
+            :ident str: The ident of the source to get.
         
+        Returns: 
+            The :Source: object.
+        """
+        source_list = self.sources
+        if self.legacy:
+            source_list = self.legacy_sources
+        
+        for source in iter(source_list.values()):
+            if source.ident == ident:
+                return source
+        
+        raise SourceFileError(
+            f'Could not find a source with ident `{ident}` in this file.`'
+        )
+        
+    def get_source_by_index(self, index: int) -> Source:
+        """ Get a source from the list of sources.
+
+        Works regardless of whether the file is a legacy file or a DEB822 file, 
+        or where in the file the source occurs. 
+
+        Arguments:
+            :index int: The index to get, with 0 being the first one in the 
+                file. This will always correspond to the file_ident-`index`.
+        
+        Returns:
+            The :Source: object.
+        """        
+        suffix = f'-{index}'
+        if index == 0:
+            suffix = ''
+        
+        try:
+            return self.get_source_by_ident(f'{self.ident}{suffix}')
+        
+        except SourceFileError:
+            raise SourceFileError(
+                f'Could not find the specified index: {index}. Most likely the '
+                'index is higher than the number of sources.'
+            )
     
     def generate_output(self) -> str:
         """ Generate output for writing to a file on disk.
@@ -171,6 +217,7 @@ class SourceFile:
                                 source.name = f'{name} Source code'
                         source.enabled = False
                         source.file = self
+                        source.ident = self.ident
                         if source_count > 0:
                             source.ident = f'{self.ident}-{source_count}'
                             source.name += f' {source_count}'
@@ -197,6 +244,7 @@ class SourceFile:
                                 source.name = f'{name} Source code'
                         source.enabled = True
                         source.file = self
+                        source.ident = self.ident
                         if source_count > 0:
                             source.ident = f'{self.ident}-{source_count}'
                             source.name += f' {source_count}'
@@ -253,6 +301,7 @@ class SourceFile:
                     source = Source()
                     source.load_from_list(raw_822[1:])
                     source.file = self
+                    source.ident = self.ident
                     if source_count > 0:
                         source.ident = f'{self.ident}-{source_count}'
                         source.name += f' {source_count}'
