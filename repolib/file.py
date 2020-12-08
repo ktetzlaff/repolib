@@ -57,11 +57,19 @@ class SourceFile:
         :legacy bool: Whether the source contains legacy deb sources.
     """
 
-    def __init__(self, ident: str = ''):
+    def __init__(self, ident: str = '', filename=''):
         """
         Arguments:
             :str ident: The filename of the file (without the extension)
+            :str filename: The filename of the file (with the extension)
+        
+            Note: If both an ident and a filename are provided, the ident takes 
+            precedence.
         """
+        if filename:
+            filename = filename.replace('.list', '')
+            filename = filename.replace('.sources', '')
+            self.ident = filename
         self.ident: str = ident
         self.comments: Dict[int, str] = {}
         self.deb_sources: Dict[int, Source] = {}
