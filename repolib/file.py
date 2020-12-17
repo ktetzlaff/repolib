@@ -94,12 +94,16 @@ class SourceFile:
                 privileged_object.output_file_to_disk(self.filename, self.generate_output())
                 privileged_object.exit()
 
-    def sources(self):
+    def all_sources(self):
         """ A generator that yields all sources.
 
         This returns all sources regardless of whether this is a legacy or a 
-        new-format file.
+        new-format file. If this is a single-source (one repo, possibly with 
+        source code), then only returns self.
         """
+        if self.single_source:
+            yield self
+
         if self.legacy:
             for i in self.legacy_sources:
                 yield self.legacy_sources[i]
@@ -118,7 +122,7 @@ class SourceFile:
             The :Source: object.
         """
         
-        for source in self.sources():
+        for source in self.all_sources():
             if source.ident == ident:
                 return source
         
@@ -350,3 +354,178 @@ class SourceFile:
             ext = 'list'
         
         return f'{self.ident}.{ext}'
+    
+    @property
+    def sources(self):
+        """ List(Source): A list of all of the sources, regardless of format."""
+        sources: List(Source) = []
+        
+        if self.legacy:
+            for source in self.legacy_sources:
+                sources.append(self.legacy_sources[source])
+        
+        else:
+            for source in self.deb_sources:
+                sources.append(self.deb_sources[source])
+        
+        return sources
+
+    @property
+    def single_source(self):
+        """ bool: the file contains a single repo (with or without source code)"""
+        if len(self.sources) == 1:
+            return True
+        
+        if len(self.sources) == 2:
+            source0 = (
+                self.sources[0].uris,
+                self.sources[0].suites,
+                self.sources[0].components
+            )
+            source1 = (
+                self.sources[1].uris,
+                self.sources[1].suites,
+                self.sources[1].components
+            )
+            if source0 == source1:
+                return True
+        
+        return False
+    
+    @property
+    def source_code(self):
+        """ bool: whether source code is enabled for a single source.
+
+        Returns False if single_source is false.
+        """
+        try:
+            if self.single_source and self.sources[1].enabled:
+                return True
+        except IndexError:
+            pass
+        
+        return False
+    
+    @source_code.setter
+    def source_code(self, enabled):
+        """ Enable the source_code repo. 
+        
+        Do nothing if this isn't a single_source or if there isn't already a
+        source code repo present."""
+        if self.has_source_code:
+            try:
+                self.sources[1].enabled = enabled
+            except IndexError:
+                pass
+    
+    @property
+    def has_source_code(self):
+        """ bool: True if this is a single source and there is a source code
+        repo present."""
+        if self.single_source and len(self.sources) == 2:
+            return True
+        
+        return False
+
+
+    # These properties are here for convenince to make changing sources easier.
+    # They will only make changes if this is a single-source. Otherwise, they 
+    # do nothing. 
+
+    @property
+    def name(self):
+        """ name"""
+        if self.single_source:
+            return self.sources[0].name
+    
+    @name.setter
+    def name(self, name):
+        """Set the property in the sources."""
+        if self.single_source:
+            self.sources[0].name = name
+            self.sources[1].name = name
+
+
+    @property
+    def enabled(self):
+        """ enabled"""
+        if self.single_source:
+            return self.sources[0].enabled
+    
+    @enabled.setter
+    def enabled(self, enabled):
+        """Set the property in the sources."""
+        if self.single_source:
+            self.sources[0].enabled = enabled
+            self.sources[1].enabled = enabled
+
+
+    @property
+    def types(self):
+        """ types"""
+        if self.single_source:
+            return self.sources[0].types
+    
+    @types.setter
+    def types(self, types):
+        """Set the property in the sources."""
+        if self.single_source:
+            self.sources[0].types = types
+            self.sources[1].types = types
+
+
+    @property
+    def uris(self):
+        """ uris"""
+        if self.single_source:
+            return self.sources[0].uris
+    
+    @uris.setter
+    def uris(self, uris):
+        """Set the property in the sources."""
+        if self.single_source:
+            self.sources[0].uris = uris
+            self.sources[1].uris = uris
+
+
+    @property
+    def suites(self):
+        """ suites"""
+        if self.single_source:
+            return self.sources[0].suites
+    
+    @suites.setter
+    def suites(self, suites):
+        """Set the property in the sources."""
+        if self.single_source:
+            self.sources[0].suites = suites
+            self.sources[1].suites = suites
+
+
+    @property
+    def components(self):
+        """ components"""
+        if self.single_source:
+            return self.sources[0].components
+    
+    @components.setter
+    def components(self, components):
+        """Set the property in the sources."""
+        if self.single_source:
+            self.sources[0].components = components
+            self.sources[1].components = components
+
+
+    @property
+    def options(self):
+        """ options"""
+        if self.single_source:
+            return self.sources[0].options
+    
+    @options.setter
+    def options(self, options):
+        """Set the property in the sources."""
+        if self.single_source:
+            self.sources[0].options = options
+            self.sources[1].options = options
+        

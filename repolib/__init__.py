@@ -72,7 +72,7 @@ def get_all_sources(get_system=False, get_exceptions=False):
             errors[file] = err
         else:
             # The source should not be listed if it is empty
-            for source in source_file.sources():
+            for source in source_file.all_sources():
                 has_uris = len(source.uris) > 0
                 has_suites = len(source.suites) > 0
                 if has_uris and has_suites:
@@ -87,7 +87,7 @@ def get_all_sources(get_system=False, get_exceptions=False):
             errors[file] = err
         else:
             # The source should not be listed if it is empty
-            for source in source_file.sources():
+            for source in source_file.all_sources():
                 has_uris = len(source.uris) > 0
                 has_suites = len(source.suites) > 0
                 if has_uris and has_suites:
