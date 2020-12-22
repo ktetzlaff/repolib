@@ -95,6 +95,10 @@ class Source(deb822.Deb822):
         self.comment = '## Added/managed by repolib ##\n#\n'
 
     def load_from_file(self, filename=None, ident=None):
+        """ Proxy name for self.parse_file() """
+        self.parse_file(filename=filename, ident=ident)
+
+    def parse_file(self, filename=None, ident=None):
         """ Loads the data from a file path.
 
         Arguments:

@@ -37,23 +37,25 @@ class SystemTestCase(unittest.TestCase):
     def setUpModule(self):
         with open(self.sources_dir / 'modified_system.sources', mode='w') as sources_file:
             sources_file.write(
-                'X-Repolib_Name: Pop!_OS Sources\n'
+                'X-Repolib-Name: Pop!_OS System Sources\n'
                 'Enabled: no\n'
                 'Types: deb\n'
                 'URIs: http://apt.pop-os.org/ubuntu http://archive.ubuntu.com/ubuntu\n'
                 'Suites: focal focal-updates focal-test\n'
                 'Components: main universe multiverse test\n'
+                'X-Repolib-Default-Mirror: http://us.archive.ubuntu.com/ubuntu/\n'
             )
 
     def setUp(self):
         with open(self.sources_dir / 'system.sources', mode='w') as sources_file:
             sources_file.write(
-                'X-Repolib_Name: Pop!_OS Sources\n'
+                'X-Repolib-Name: Pop!_OS System Sources\n'
                 'Enabled: no\n'
                 'Types: deb deb-src\n'
                 'URIs: http://apt.pop-os.org/ubuntu\n'
                 'Suites: focal focal-updates focal-backports\n'
                 'Components: main universe multiverse restricted\n'
+                'X-Repolib-Default-Mirror: http://us.archive.ubuntu.com/ubuntu/\n'
             )
         self.source = system.SystemSource()
 

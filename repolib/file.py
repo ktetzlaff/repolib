@@ -346,6 +346,9 @@ class SourceFile:
             raw_822 = []
             item += 1
             self.comments[item] = ''
+        
+        if self.single_source:
+            self.file = self
 
     @property 
     def filename(self):
@@ -442,8 +445,8 @@ class SourceFile:
     def name(self, name):
         """Set the property in the sources."""
         if self.single_source:
-            self.sources[0].name = name
-            self.sources[1].name = name
+            for source in self.sources:
+                source.name = name
 
 
     @property
@@ -456,8 +459,8 @@ class SourceFile:
     def enabled(self, enabled):
         """Set the property in the sources."""
         if self.single_source:
-            self.sources[0].enabled = enabled
-            self.sources[1].enabled = enabled
+            for source in self.sources:
+                source.enabled = enabled
 
 
     @property
@@ -470,8 +473,8 @@ class SourceFile:
     def types(self, types):
         """Set the property in the sources."""
         if self.single_source:
-            self.sources[0].types = types
-            self.sources[1].types = types
+            for source in self.sources:
+                source.types = types
 
 
     @property
@@ -484,8 +487,8 @@ class SourceFile:
     def uris(self, uris):
         """Set the property in the sources."""
         if self.single_source:
-            self.sources[0].uris = uris
-            self.sources[1].uris = uris
+            for source in self.sources:
+                source.uris = uris
 
 
     @property
@@ -498,8 +501,8 @@ class SourceFile:
     def suites(self, suites):
         """Set the property in the sources."""
         if self.single_source:
-            self.sources[0].suites = suites
-            self.sources[1].suites = suites
+            for source in self.sources:
+                source.suites = suites
 
 
     @property
@@ -512,8 +515,8 @@ class SourceFile:
     def components(self, components):
         """Set the property in the sources."""
         if self.single_source:
-            self.sources[0].components = components
-            self.sources[1].components = components
+            for source in self.all_sources():
+                sourcesourcesomponents = components
 
 
     @property
@@ -526,6 +529,6 @@ class SourceFile:
     def options(self, options):
         """Set the property in the sources."""
         if self.single_source:
-            self.sources[0].options = options
-            self.sources[1].options = options
+            for source in self.sources:
+                source.options = options
         

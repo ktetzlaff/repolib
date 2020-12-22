@@ -72,11 +72,17 @@ def get_all_sources(get_system=False, get_exceptions=False):
             errors[file] = err
         else:
             # The source should not be listed if it is empty
-            for source in source_file.all_sources():
-                has_uris = len(source.uris) > 0
-                has_suites = len(source.suites) > 0
+            if source_file.single_source: 
+                has_uris = len(source_file.uris) > 0
+                has_suites = len(source_file.suites) > 0
                 if has_uris and has_suites:
-                    sources.append(source)
+                    sources.append(source_file)
+            else:
+                for source in source_file.all_sources():
+                    has_uris = len(source.uris) > 0
+                    has_suites = len(source.suites) > 0
+                    if has_uris and has_suites:
+                        sources.append(source)
 
     for file in list_files:
         source_file = SourceFile(filename=file.name)
@@ -87,11 +93,17 @@ def get_all_sources(get_system=False, get_exceptions=False):
             errors[file] = err
         else:
             # The source should not be listed if it is empty
-            for source in source_file.all_sources():
-                has_uris = len(source.uris) > 0
-                has_suites = len(source.suites) > 0
+            if source_file.single_source: 
+                has_uris = len(source_file.uris) > 0
+                has_suites = len(source_file.suites) > 0
                 if has_uris and has_suites:
-                    sources.append(source)
+                    sources.append(source_file)
+            else:
+                for source in source_file.all_sources():
+                    has_uris = len(source.uris) > 0
+                    has_suites = len(source.suites) > 0
+                    if has_uris and has_suites:
+                        sources.append(source)
 
     if get_exceptions:
         return sources, errors
