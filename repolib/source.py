@@ -185,6 +185,8 @@ class Source(deb822.Deb822):
         if not self.enabled:
             line += '# '
         
+        line += self.types[0].strip()
+        
         if self.options:
             line += '['
             line += self._get_options()
