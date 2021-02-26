@@ -747,7 +747,7 @@ class SourceFileNu:
 
                 # Empty lines count as comments
                 if line.strip() == '':
-                    self.comments[item] = line.strip()
+                    self.items.append('')
 
                 # Find Deb822 sources
                 valid_keys = [

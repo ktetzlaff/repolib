@@ -281,7 +281,7 @@ class Source(deb822.Deb822):
         if '# X-Repolib-Name: ' in line:
             name_line = line.replace('# X-Repolib-Name: ', '\x05')
             name_list = name_line.split('\x05')
-            self.name = name_list[-1]
+            self.name = name_list[-1].strip()
 
         # Enabled vs. Disabled
         self.enabled = True
