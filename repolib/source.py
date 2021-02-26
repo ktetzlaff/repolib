@@ -186,6 +186,7 @@ class Source(deb822.Deb822):
             line += '# '
         
         line += self.types[0].strip()
+        line += ' '
         
         if self.options:
             line += '['
