@@ -24,7 +24,6 @@ along with RepoLib.  If not, see <https://www.gnu.org/licenses/>.
 
 import re
 
-import dbus
 from debian import deb822
 
 from . import util
@@ -85,114 +84,134 @@ class Source(deb822.Deb822):
     options_re = re.compile(r'[^@.+]\[([^[]+.+)\]\ ')
     uri_re = re.compile(r'\w+:(\/?\/?)[^\s]+')
 
-    def __init__(self, *args, filename=None, ident=None, **kwargs):
+    def __init__(self, *args, ident=None, **kwargs):
         super().__init__(*args, **kwargs)
-        if filename:
-            self.filename = filename
-        if ident:
-            self.ident = ident
+        self.init_values()
+        self.file = None
 
-        self.key_file = util.get_keys_dir() / f'{self.ident}.gpg'
-        self.comment = '## Added/managed by repolib ##\n#\n'
+    def init_values(self):
+        """ Reset Values to blank defaults, and adds all of them to self.
 
-    def load_from_file(self, filename=None, ident=None):
-        """ Proxy name for self.parse_file() """
-        self.parse_file(filename=filename, ident=ident)
-
-    def parse_file(self, filename=None, ident=None):
-        """ Loads the data from a file path.
-
-        Arguments:
-            filename (str): The name of the file on disk.
+        We need to do this to ensure they are in the correct order.
         """
-        self._set_filename_ident(filename, ident)
-        if not self.ident:
-            raise SourceError("No filename to load from")
-
-        full_path = util.get_sources_dir() / self.filename
-
-        with open(full_path, mode='r') as source_file:
-            super().__init__(source_file)
+        self.name = ''
+        self.enabled = True
+        self.types = 'deb'
+        self.uris = []
+        self.suites = []
+        self.components = []
+        self.options = {}
     
-    def load_from_list(self, data):
-        """ Loads the data from a list of strings.
+    def load_from_data(self, data):
+        """ Loads the given data into self.
 
         Arguments:
-            :List[str] data: The list of strings to load from.
+            data (list[str]): The data to load from.
         """
         self.init_values()
         super().__init__(sequence=data)
-
-    def save_to_disk(self, save=True):
-        """ Saves the source to disk."""
-        if not self.filename:
-            raise SourceError('No filename to save to specified')
-        full_path = util.get_sources_dir() / self.filename
-
-        if save:
-            try:
-                with open(full_path, mode='w') as sources_file:
-                    sources_file.write(self.dump())
-            except PermissionError:
-                bus = dbus.SystemBus()
-                privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
-                privileged_object.output_file_to_disk(self.filename, self.dump())
-                privileged_object.exit()
-
-    def make_source_string(self):
-        """ Makes a printable string of the source.
-
-        This method is intended to provide output in a user-friendly format. For
-        output representative of the actual data, use dump() instead.
-
-        Returns:
-            A str which can be printed to console.
-        """
-        # The source can't be enabled if there are no uris or suites
-        no_uris = len(self.uris) <= 0
-        no_suites = len(self.suites) <= 0
-        if no_uris or no_suites:
-            self.enabled = False
-
-        if not self.name:
-            self.name = self.filename.replace('.sources', '')
-
-        toprint = self.dump()
-        toprint = toprint.replace('X-Repolib-Name', 'Name')
-        return toprint
-
-    def set_source_enabled(self, enabled):
-        """ Convenience method to set a source with source_code enabled.
-
-        If source code is enabled, then the Types for self will be both
-        BINARY and SOURCE. Otherwise it will be just BINARY.
-
-        Arguments:
-            enabled(bool): Wether or not to enable source-code.
-        """
-        if enabled:
-            self.types = [util.AptSourceType.BINARY, util.AptSourceType.SOURCE]
-        else:
-            self.types = [util.AptSourceType.BINARY]
-
+    
     # pylint: disable=arguments-differ
-    # We're fundamentally doing a different thing than our super class.
-    def copy(self, source_code=True):
+    # We're doing something different than the parent class
+    def copy(self, source_code=False):
         """ Copies the source and returns an identical source object.
 
         Arguments:
-            source_code (bool): if True, output an identical source, except with
-                source code enabled.
-
+            source_code (bool): If True, output object will have source enabled.
+        
         Returns:
-            A Source() object identical to self.
+            Source(): The copied source object.
         """
         new_source = Source()
-        new_source = self._copy(new_source, source_code=source_code)
-        return new_source
+        new_source.file = self.file
+        new_source.name = self.name
+        new_source.enabled = self.enabled
+        new_source.types = self.types.copy()
 
-    def make_name(self, prefix=''):
-        """ Create a name for this source. """
+        if source_code:
+            new_source.types = ['deb-src']
+
+        new_source.uris = self.uris.copy()
+        new_source.suites = self.suites.copy()
+        new_source.components = self.components.copy()
+
+        try:
+            new_source.options = self.options.copy()
+        except AttributeError:
+            pass
+        return new_source
+    
+    def make_source_string(self):
+        """ Make a printable string of the source.
+
+        This method produces output suitable for output to a user e.g. in a 
+        command. For getting the actual data, use self.dump() instead.
+
+        Returns:
+            str: The output string.
+        """
+        self.enabled = self.enabled
+        print_output = self.dump()
+        print_output.replace('X-Repolib-Name', 'Name')
+
+        return print_output
+    
+    def save_string(self):
+        """ Create a string for saving the source to a file. 
+
+        Returns:
+            str: The generated string.
+        """
+        save_output = ''
+        save_output += f'## {self.ident}\n'
+        save_output += self.dump()
+        return save_output
+    
+    def make_debline(self):
+        """ Output this source as a one-line format source line.
+
+        Note: this is expected to fail if there is more than one type, URI, or
+        Suite; the one-line format does not support having multiple of these
+        properties.
+        """
+        line = ''
+
+        for attr in ['types', 'uris', 'suites']:
+            if len(getattr(self, attr)) > 1:
+                msg = f'The source has too many {attr}.'
+                msg += f'One-line format sources support one {attr[:-1]} only.'
+                raise SourceError(msg)
+        
+        if not self.enabled:
+            line += '# '
+        
+        if self.options:
+            line += '['
+            line += self._get_options()
+            line = line.strip()
+            line += '] '
+        
+        line += f'{self.uris[0]} '
+        line += f'{self.suites[0]} '
+
+        for component in self.components:
+            line += f'{component} '
+        
+        line += f' ## X-Repolib-Name: {self.name}'
+
+        return line
+
+    
+    def make_default_name(self, prefix=''):
+        """ Create a default name for this source.
+
+        Arguments:
+            prefix (str): An optional prefix to append to the beginning of the
+                name.
+        
+        Returns:
+            str: The generated name.
+        """
         if len(self.uris) > 0:
             uri = self.uris[0].replace('/', ' ')
             uri_list = uri.split()
@@ -203,259 +222,244 @@ class Source(deb822.Deb822):
         else:
             # Use the ident as a fallback as it should be good enough
             name = self.ident
-
-        self.key_file = util.get_keys_dir() / f'{self.ident}.gpg'
-        return name
-
-    def init_values(self):
-        """ Initialize the class-attributes in order.
-
-        This ensures that the values are in the correct order when output.
-        """
-        self.name = ''
-        self.enabled = True
-        self.types = [util.AptSourceType.BINARY]
-        self.uris = []
-        self.suites = []
-        self.components = []
-        self.options = {}
-
-    def make_debline(self):
-        """ Output a one-line entry for this source.
-
-        Note that this is expected to fail if somehow there is more than one
-        type, URI, or suite, because this format does not support multiples of
-        these items.
-        """
-        line = ''
-
-        if len(self.uris) > 1:
-            raise SourceError(
-                'The source has too many URIs. One-line format sources support '
-                'one URI only.'
-            )
-        if len(self.suites) > 1:
-            raise SourceError(
-                'The source has too many suites. One-line format sources support '
-                'one suite only.'
-            )
-        if len(self.uris) > 1:
-            raise SourceError(
-                'The source has too many types. One-line format sources support '
-                'one type only.'
-            )
-
-        if self.enabled == util.AptSourceEnabled.FALSE:
-            line += '# '
-
-        line += f'{self.types[0].value} '
-
-        if self.options:
-            line += '['
-            line += self._get_options()
-            line = line.strip()
-            line += '] '
-
-        line += f'{self.uris[0]} '
-        line += f'{self.suites[0]} '
-
-        for component in self.components:
-            line += f'{component} '
         
-        line += f' ## X-Repolib-Name: {self.name}'
-
-        return line.strip()
-
-    def _set_filename_ident(self, filename, ident):
-        if filename:
-            self.filename = filename
-        if ident:
-            self.ident = ident
-
-    # pylint: disable=no-self-use
-    # Handy to have for subclasses
-    def _clean_name(self, name):
-        name = name.replace('.list', '')
-        name = name.replace('.sources', '')
         return name
+    
+    def make_key(self):
+        """ Create a signing key for this source.
 
-    @property
-    def name(self):
-        """ str: The name of the source."""
+        Note: This is intended to be used by subclasses.
+        """
+        return
+    
+    def set_options(self, options):
+        """Turn a one-line format options substring into a supported dict.
+
+        Arguments:
+            options (str): the one-line format options string to parse.
+        
+        Returns:
+            dict: The parsed options and values.
+        """
+        # Split the option string into a list of chars, so that we can replace
+        # the first and last characters ([ and ]) with spaces.
+        ops = list(options)
+        ops[0] = " "
+        ops[-1] = " "
+        options = "".join(ops).strip()
+
+        for replacement in self.options_d:
+            options = options.replace(replacement, self.options_d[replacement])
+
+        options = options.replace('=', ',')
+        options_list = options.split()
+
+        options_output = {}
+
+        for i in options_list:
+            option = i.split(',')
+            values_list = []
+            for value in option[1:]:
+                values_list.append(value)
+            options_output[option[0]] = ' '.join(values_list)
+        return options_output
+    
+    def parse_debline(self, line):
+        """ Parse a one-line format source.
+        
+        Arguments:
+            line (str): The one-line source line to parse
+        """
+        self.init_values()
+
+        if not util.validate_debline(line):
+            raise SourceError(f'The line {line} is malformed.')
+
+        if '# X-Repolib-Name: ' in line:
+            name_line = line.replace('# X-Repolib-Name: ', '\x05')
+            name_list = name_line.split('\x05')
+            self.name = name_list[-1]
+
+        # Enabled vs. Disabled
+        self.enabled = True
+        if line.startswith('#'):
+            self.enabled = False
+            line = line.replace('#', '', 1)
+            line = line.strip()
+
+        # URI parsing
+        for word in line.split():
+            if util.url_validator(word):
+                self.uris = [word]
+                line_uri = line.replace(word, '')
+
+        # Options parsing
         try:
-            return self['X-Repolib-Name']
-        except KeyError:
-            return ""
-
-    @name.setter
-    def name(self, name):
-        self['X-Repolib-Name'] = name.strip()
-
-    @property
-    def ident(self):
-        """str: a system-scope identifier for this source. Used for filename."""
-        try:
-            return self._ident
+            options = self.options_re.search(line_uri).group()
+            opts = self.set_options(options.strip())
+            self.options = opts.copy()
+            line_uri = line_uri.replace(options, '')
         except AttributeError:
-            self._ident = None
-            return self._ident
+            pass
 
+        deb_list = line_uri.split()
+
+        # Type Parsing
+        self.types = ['deb']
+        if deb_list[0] == 'deb-src':
+            self.types = ['deb-src']
+
+        # Suite Parsing
+        self.suites = [deb_list[1]]
+
+        # Components parsing
+        comps = []
+        for item in deb_list[2:]:
+            if not item.startswith('#'):
+                comps.append(item)
+            else:
+                break
+        self.components = comps
+
+    
+    @property
+    def ident(self) -> str:
+        """ str: The unique identifier for this source within its file"""
+        return self._ident
+    
     @ident.setter
-    def ident(self, ident):
+    def ident (self, ident: str):
         self._ident = ident
 
-    @property
-    def filename(self):
-        """str: The filename of the source."""
-        return f'{self.ident}.sources'
-
-    @filename.setter
-    def filename(self, name):
-        self._ident = self._clean_name(name)
 
     @property
-    def enabled(self):
-        """ util.AptSourceEnabled: Whether the source is enabled or not. """
-        # The source can't be enabled if there are no uris or suites
-        no_uris = len(self.uris) <= 0
-        no_suites = len(self.suites) <= 0
-        if no_uris or no_suites:
-            return util.AptSourceEnabled.FALSE
+    def source_code(self) -> bool:
+        """ bool: Whether or not this source provides source code."""
+        if 'src' in self.types:
+            return True
+        return False
+    
+    @source_code.setter
+    def source_code (self, source_code: bool):
+        if source_code:
+            if 'src' not in self.types:
+                self.types += ' deb-src'
+        else:
+            self.types = 'deb'
 
-        try:
-            return util.AptSourceEnabled(self['enabled'])
-        except KeyError:
-            return ''
 
+    @property
+    def name(self) -> str:
+        """ str: A human-friendly name for this source"""
+        if not self['X-Repolib-Name']:
+            self['X-Repolib-Name'] = self.make_default_name()
+        return self['X-Repolib-Name']
+    
+    @name.setter
+    def name (self, name: str):
+        self['X-Repolib-Name'] = name
+
+
+    @property
+    def enabled(self) -> bool:
+        """ bool: whether or not this source is enabled"""
+        enabled = self['Enabled'] == 'yes'
+        if enabled and self.has_required_parts:
+            return True
+        return False
+            
+    
     @enabled.setter
-    def enabled(self, enable):
-        """ Accept a wide variety of data types/values for ease of use. """
-        e_values = [True,
-                    'True',
-                    'true',
-                    'Yes',
-                    'yes',
-                    'YES',
-                    'y',
-                    'Y',
-                    util.AptSourceEnabled.TRUE,
-                    1]
-        if enable in e_values:
-            self['Enabled'] = util.AptSourceEnabled.TRUE.value
-        else:
-            self['Enabled'] = util.AptSourceEnabled.FALSE.value
-
-    @property
-    def source_code_enabled(self):
-        """bool: whether source code should be enabled or not."""
-        code = False
-        if self.enabled == util.AptSourceEnabled.TRUE:
-            if util.AptSourceType.SOURCE in self.types:
-                code = True
-
-        self._source_code_enabled = code
-        return self._source_code_enabled
-
-    @source_code_enabled.setter
-    def source_code_enabled(self, enabled):
-        self._source_code_enabled = enabled
-        self.types = [util.AptSourceType.BINARY]
-        if enabled:
-            self.types.append(util.AptSourceType.SOURCE)
-
-    @property
-    def types(self):
-        """ list of util.AptSourceTypes: The types of packages provided. """
-        try:
-            types = []
-            for dtype in self['Types'].split():
-                types.append(util.AptSourceType(dtype.strip()))
-            return types
-        except KeyError:
-            return []
-
-    @types.setter
-    def types(self, types):
-        output_types = []
-        for dtype in types:
-            output_types.append(dtype.value)
-        self['Types'] = ' '.join(output_types)
-
-
-    @property
-    def uris(self):
-        """ [str]: The list of URIs providing packages. """
-        try:
-            return self['URIs'].split()
-        except KeyError:
-            return []
-
-    @uris.setter
-    def uris(self, uris):
-        """ If the user tries to remove the last URI, disable as well. """
-        if len(uris) > 0:
-            for uri in uris:
-                if not util.url_validator(uri):
-                    raise SourceError(f'The URI "{uri}" is malformed.')
-            self['URIs'] = ' '.join(uris)
-        else:
-            self['URIs'] = ''
-            # self.enabled = False
-
-    @property
-    def suites(self):
-        """ [str]: The list of enabled Suites. """
-        try:
-            return self['Suites'].split()
-        except KeyError:
-            return []
-
-    @suites.setter
-    def suites(self, suites):
-        """ If user removes the last suite, disable as well. """
-        if len(suites) > 0:
-            self['Suites'] = ' '.join(suites)
-        else:
-            self['Suites'] = ''
-            # self.enabled = False
-
-    @property
-    def components(self):
-        """[str]: The list of components enabled. """
-        try:
-            return self['Components'].split()
-        except KeyError:
-            return []
-
-    @components.setter
-    def components(self, components):
-        """ Also disable if the user tries to remove the last component. """
-        if len(components) > 0:
-            self['Components'] = ' '.join(components)
-        else:
-            self['Components'] = ''
-            # self.enabled = False
-
-    @property
-    def options(self):
-        """ dict: Addtional options for the repository."""
-        non_options = [
-            'X-Repolib-Name', 'Enabled', 'Types', 'URIs', 'Suites', 'Components'
+    def enabled (self, enabled):
+        e_values = [
+            True,
+            'True',
+            'true',
+            'Yes',
+            'yes',
+            'YES',
+            'y',
+            'Y',
+            util.AptSourceEnabled.TRUE,
+            1
         ]
-        options = {}
-        for key in self:
-            if key not in non_options:
-                options[key] = self[key]
-        if len(options) > 0:
-            return options
-        return {}
 
+        if enabled in e_values:
+            self['Enabled'] = 'yes'
+        else:
+            self['Enabled'] = 'no'
+
+
+    @property
+    def types(self) -> list:
+        """ list: The types of the source"""
+        return self['Types'].split()
+    
+    @types.setter
+    def types (self, types: list):
+        self['Types'] = ' '.join(types).strip()
+
+
+    @property
+    def uris(self) -> list:
+        """ list: The URIs for this source"""
+        return self['URIs'].split()
+    
+    @uris.setter
+    def uris (self, uris: list):
+        self['URIs'] = ' '.join(uris).strip()
+
+
+    @property
+    def suites(self) -> list:
+        """ list: The suites for this source"""
+        return self['Suites'].split()
+    
+    @suites.setter
+    def suites (self, suites: list):
+        self['Suites'] = ' '.join(suites).strip()
+
+
+    @property
+    def components(self) -> list:
+        """ list: The components for this source"""
+        return self['Components'].split()
+    
+    @components.setter
+    def components (self, components: list):
+        self['Components'] = ' '.join(components).strip()
+
+
+    @property
+    def options(self) -> dict:
+        """ dict: The options for this source"""
+        return self._options
+    
     @options.setter
-    def options(self, options):
-        for key in options:
-            self[key] = options[key]
+    def options (self, options: dict):
+        self._options = options
 
+
+    @property
+    def has_required_parts(self) -> bool:
+        """ bool: True if all required attributes are set, otherwise false."""
+        required_parts = ['uris', 'suites', 'ident']
+
+        for attr in required_parts:
+            if len(getattr(self, attr)) < 1:
+                return False
+        
+        return True
+
+    def _get_options(self):
+        """ Turn the options dict into a single string for one-lining."""
+        opt_str = ''
+        for key in self.options:
+            opt_str += f'{self.outoptions_d[key]}={self.options[key].replace(" ", ",")} '
+        return opt_str
+    
     def _copy(self, new_source, source_code=False):
+        """ Copy the data from self into new_source)"""
         new_source.name = self.name
         new_source.enabled = self.enabled
         new_source.types = self.types.copy()
@@ -472,9 +476,3 @@ class Source(deb822.Deb822):
         except AttributeError:
             pass
         return new_source
-
-    def _get_options(self):
-        opt_str = ''
-        for key in self.options:
-            opt_str += f'{self.outoptions_d[key]}={self.options[key].replace(" ", ",")} '
-        return opt_str

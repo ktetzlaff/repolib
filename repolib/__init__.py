@@ -25,7 +25,7 @@ from .system import SystemSource
 from .legacy_deb import LegacyDebSource
 from .file import SourceFile
 from .deb import DebLine
-from .ppa import PPALine
+from .ppa import PPASource
 from .util import AptSourceEnabled, AptSourceType, RepoError
 from . import util
 from . import ppa

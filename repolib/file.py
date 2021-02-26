@@ -323,7 +323,7 @@ class SourceFile:
                 if line.strip() == '':
                     parsing_deb822 = False
                     source = Source()
-                    source.load_from_list(raw_822[1:])
+                    source.load_from_data(raw_822[1:])
                     source.file = self
                     source.ident = self.ident
                     if source_count > 0:
@@ -341,7 +341,7 @@ class SourceFile:
         if raw_822:
             parsing_deb822 = False
             source = Source()
-            source.load_from_list(raw_822[1:])
+            source.load_from_data(raw_822[1:])
             self.deb_sources[raw_822[0]] = source
             raw_822 = []
             item += 1
@@ -349,6 +349,30 @@ class SourceFile:
         
         if self.single_source:
             self.file = self
+
+    @property
+    def oneline_format(self) -> bool:
+        """bool: Whether this is a one-line format file or not."""
+        return self._oneline_format
+    
+    @oneline_format.setter
+    def oneline_format(self, form):
+        e_values = [
+            True,
+            'True',
+            'true',
+            'Yes',
+            'yes',
+            'YES',
+            'y',
+            'Y',
+            1
+        ]
+        
+        if form in e_values:
+            self._oneline_format = True
+        else:
+            self._oneline_format = False
 
     @property 
     def filename(self):
@@ -516,7 +540,7 @@ class SourceFile:
         """Set the property in the sources."""
         if self.single_source:
             for source in self.all_sources():
-                sourcesourcesomponents = components
+                source.components = components
 
 
     @property
@@ -532,3 +556,41 @@ class SourceFile:
             for source in self.sources:
                 source.options = options
         
+class SourceFileNu:
+    """ A class for handling source files on disk.
+    
+    Attributes:
+        :ident str: The name of the file (without the extension)
+        :form str: The format of the file (either `deb` or `legacy`)
+    """
+    def __init__(self, ident: str = ''):
+        self.ident = ident
+        self.comments: Dict[int, str] = {}
+        self.source_path: Path
+    
+    def detect_file_format(self) -> str:
+        """ Detect the format of the file based on the file extension.
+
+        Returns:
+            str: `deb` if the file is a DEB822 file, `legacy` if it is a legacy
+                .list file, or `none` if the file doesn't exist (or has an
+                invalid extension).
+        """
+        sources_dir = util.get_sources_dir()
+        self.path = sources_dir / f'{self.ident}.sources'
+        
+        # If this is a sources file, return here
+        if self.path.exists():
+            return 'deb'
+
+        self.path = sources_dir / f'{self.ident}.list'
+
+        # If this is a list file, return here
+        if self.path.exists():
+            return 'legacy'
+        
+        # If the file doesn't exsit, return none
+        return 'none'
+    
+    def load_deb_sources(self):
+        """ Loads DEB822 formatted sources in the file."""

@@ -172,87 +172,51 @@ class PPA:
             self._signing_key_data = key
         return self._signing_key_data
 
-class PPALine(source.Source):
-    """ A source specifically for Launchpad PPAs
 
-    These are typically given in the format ppa:owner/name. This is a
-    convenience function which makes adding these sources easier. Most of this
-    code was adopted from SoftwareProperties.
+class PPASource(source.Source):
+    """ PPA Source shortcut
+
+    These are given in the format ppa:owner/name. Much of this code is adapted 
+    from SoftwareProperties.
 
     Arguments:
-        line (str): The ppa: format line.
-        fetch_data (bool): Whether to try and fetch metadata from LP.
+        shortcut (str): The ppa: shortcut to process
+        fetch_data (bool): Whether to try and fetch metadata from Launchpad.
     """
-    # pylint: disable=too-many-instance-attributes
-    # These just have more data than a normal source, and most of these are
-    # @properties anyway (due to the inheritance from source.Source).
 
-    def __init__(self, line, fetch_data=True, verbose=False):
+    def __init__(self, shortcut, fetch_data=True, verbose=False):
+        if not shortcut.startswith('ppa:'):
+            raise PPAError(f'The PPA shortcut {shortcut} is malformed')
         super().__init__()
-        self.ppa_line = line
+        self.shortcut = shortcut
         self.verbose = verbose
-        if not self.ppa_line.startswith('ppa:'):
-            raise util.RepoError("The PPA %s is malformed!" % self.ppa_line)
         self.ppa = None
-
-        self.load_from_ppa(fetch_data=fetch_data)
-
-    def load_from_ppa(self, fetch_data=True):
-        """ Load PPA information from the PPA.
+    
+    def load_from_shortcut(self, fetch_data=True):
+        """ Fills in the attributes based on the Shortcut details.
 
         Arguments:
             fetch_data (bool): Whether to fetch metadata from Launchpad.
         """
         self.init_values()
-        self.enabled = 'yes'
 
-        raw_ppa = self.ppa_line.replace('ppa:', '').split('/')
-        ppa_owner = raw_ppa[0]
-        ppa_name = raw_ppa[1]
+        self.raw_ppa = self.shortcut.replace('ppa:', '').split('/')
+        ppa_owner = self.raw_ppa[0]
+        ppa_name = self.raw_ppa[1]
+        
+        self.ident = 'binary'
+        self.name = self.make_default_name()
+        self.uris = [f'http://ppa.launchpad.net/{ppa_owner}/{ppa_name}/ubuntu']
+        self.suites = [DISTRO_CODENAME]
+        self.components = ['main']
 
         if fetch_data:
             self.ppa = get_info_from_lp(ppa_owner, ppa_name)
 
-        ppa_info = self.ppa_line.split(":")
-        ppa_uri = 'http://ppa.launchpad.net/{}/ubuntu'.format(ppa_info[1])
-        self.set_source_enabled(False)
-        self.uris = [ppa_uri]
-        self.suites = [DISTRO_CODENAME]
-        self.components = ['main']
-        ppa_name = ppa_info[1].split('/')
-        self.name = 'ppa-{}'.format('-'.join(ppa_name))
-        self.ident = '{}'.format(self.name)
-        if fetch_data:
-            self.ppa_info = get_info_from_lp(ppa_owner, ppa_name[1])
-            if self.verbose:
-                print(self.ppa_info)
-            if self.ppa:
-                self.name = self.ppa.displayname
-        self.enabled = util.AptSourceEnabled.TRUE
-
-    #pylint: disable=arguments-differ
-    # Just doing something different than the super class.
-    def make_name(self):
-        """ Make a name suitable for a PPA.
-
-        Returns:
-            str: The name generated.
-        """
-        name = self.ppa_line.replace(':', '-')
-        name = name.replace('/', '-')
-
-        self.key_file = util.get_keys_dir() / f'{self.ident}.gpg'
-        return f'{name}'
-
-    def save_to_disk(self, save=True):
-        """
-        Saves the PPA to disk, and fetches the signing key.
-        """
-        if save:
-            super().save_to_disk()
-
-    def copy(self, source_code=True):
-        """ Copies the source and returns an identical source object.
+        self.enabled = True
+    
+    def copy(self, source_code=False):
+        """Copies the source and returns an identical source object.
 
         Arguments:
             source_code (bool): if True, output an identical source, except with
@@ -261,26 +225,35 @@ class PPALine(source.Source):
         Returns:
             A Source() object identical to self.
         """
-        new_source = PPALine(self.ppa_line)
-        new_source = self._copy(new_source, source_code=source_code)
+        new_source = PPASource(self.shortcut)
+        new_source = super().copy(source_code=source_code)
+        if self.ppa:
+            new_source.ppa = self.ppa
         return new_source
 
-    def add_ppa_key(self, repo, debug=False, log=None):
-        """ Add a signing key for the source.
+    def make_default_name(self, prefix='ppa-'):
+        """ Create a name which works for a PPA."""
+        name = f'{prefix}{self.raw_ppa[0]}-{self.raw_ppa[1]}'
+        return name
+    
+    def make_key(self, debug=False, log=None):
+        """ Add a signing key from launchpad.
 
-        Arguments:
-            :Source repo: The source whose key to add.
-            :str fingerprint: The fingerprint of the key to add.
+        Note: this method will fail if there isn't any PPA object for this
+        source.
         """
-        import_dest = Path('/tmp', repo.key_file.name)
+        import_dest = Path('/tmp', self.file.key_file.name)
         if debug:
             if log:
                 log.info(
                     'Would fetch key with fingerprint %s to %s',
                     self.ppa.fingerprint,
-                    repo.key_file
+                    self.file.key_file
                 )
             return
+        
+        if not self.ppa:
+            raise PPAError('Have not fetched PPA Metadata')
         key_data = self.ppa.trustedparts_content
 
         if not key_data:
@@ -291,23 +264,26 @@ class PPALine(source.Source):
                     self.ppa.fingerprint
                 )
             return
-        with tempfile.TemporaryDirectory() as tempdir:
-
+        
+        with tempfile.TemporaryDirectory as tempdir:
             import_cmd = GPG_KEYBOX_CMD.copy()
-            import_cmd += [f'--keyring={import_dest}', '--homedir', tempdir, '--import']
+            import_cmd += [
+                f'--keyring={import_dest}', '--homedir', tempdir, '--import'
+            ]
             export_cmd = GPG_KEYRING_CMD.copy()
             export_cmd += [f'--keyring={import_dest}', '--export']
 
             try:
-                with open(repo.key_file, mode='wb') as key_file:
+                with open(self.file.key_file, mode='wb') as key_file:
                     subprocess.run(import_cmd, check=True, input=key_data.encode())
                     subprocess.run(export_cmd, check=True, stdout=key_file)
             except PermissionError:
                 subprocess.run(import_cmd, check=True, input=key_data.encode())
                 bus = dbus.SystemBus()
                 privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
-                export_cmd += [str(repo.key_file)]
+                export_cmd += [str(self.file.key_file)]
                 privileged_object.add_apt_signing_key(export_cmd)
+
 
 def get_info_from_lp(owner_name, ppa):
     """ Attempt to get information on a PPA from launchpad over the internet.
