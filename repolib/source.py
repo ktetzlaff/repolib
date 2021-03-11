@@ -240,9 +240,8 @@ class Source(deb822.Deb822):
         try:
             self.key_file.unlink()
         except PermissionError:
-            bus = dbus.SystemBus()
-            privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
-            privileged_object.delete_source(, key_file.name)
+            privileged_object = util.get_dbus_object()
+            privileged_object.delete_source(self.key_file.name)
     
     def set_options(self, options):
         """Turn a one-line format options substring into a supported dict.

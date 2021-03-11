@@ -280,8 +280,7 @@ class PPASource(source.Source):
                     subprocess.run(export_cmd, check=True, stdout=key_file)
             except PermissionError:
                 subprocess.run(import_cmd, check=True, input=key_data.encode())
-                bus = dbus.SystemBus()
-                privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+                privileged_object = util.get_dbus_object()
                 export_cmd += [str(key_path)]
                 privileged_object.add_apt_signing_key(export_cmd)
 

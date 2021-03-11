@@ -168,10 +168,8 @@ class LegacyDebSource(source.Source):
             with open(full_path, 'w') as source_file:
                 source_file.write(source_output)
         except PermissionError:
-            bus = dbus.SystemBus()
-            privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+            privileged_object = util.get_dbus_object()
             privileged_object.output_file_to_disk(self.filename, source_output)
-            privileged_object.exit()
 
     def make_deblines(self):
         """ Create a string representation of the enties as they would be saved.

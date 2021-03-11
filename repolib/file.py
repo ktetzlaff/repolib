@@ -89,7 +89,6 @@ class SourceFileError(Exception):
 #                 with open(full_path, mode='w') as sources_file:
 #                     sources_file.write(self.generate_output())
 #             except PermissionError:
-#                 bus = dbus.SystemBus()
 #                 privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
 #                 privileged_object.output_file_to_disk(self.filename, self.generate_output())
 #                 privileged_object.exit()
@@ -612,8 +611,7 @@ class SourceFile:
                     sources_file.write(self.generate_output())
             
             except PermissionError:
-                bus = dbus.SystemBus()
-                privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+                privileged_object = util.get_dbus_object()
                 privileged_object.output_file_to_disk(
                     f'{self.ident}.{self.format}',
                     self.generate_output()
@@ -626,8 +624,7 @@ class SourceFile:
         try:
             self.source_path.unlink()
         except PermissionError:
-            bus = dbus.SystemBus()
-            privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+            privileged_object = util.get_dbus_object()
             privileged_object.delete_source(
                 f"{self.ident}.{self.format}",
                 'None'

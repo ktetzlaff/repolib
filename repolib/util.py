@@ -25,10 +25,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 from urllib import request, error
 
+import dbus
+
 SOURCES_DIR = '/etc/apt/sources.list.d'
 KEYS_DIR = '/etc/apt/trusted.gpg.d'
 TESTING = False
 KEYSERVER_QUERY_URL = 'http://keyserver.ubuntu.com/pks/lookup?op=get&search=0x'
+PRIVILEGED_OBJECT = None
 
 class RepoError(Exception):
     """ Exception from this module."""
@@ -145,6 +148,15 @@ def url_validator(url):
         return False
     except:
         return False
+
+def get_dbus_object():
+    global PRIVILEGED_OBJECT
+    if PRIVILEGED_OBJECT:
+        return PRIVILEGED_OBJECT
+    else:
+        bus = dbus.SystemBus()
+        PRIVILEGED_OBJECT = bus.get_object('org.pop-os.repolib', '/Repo')
+        return PRIVILEGED_OBJECT
 
 def get_source_path(name, log=None):
     """ Tries to get the full path to the source.

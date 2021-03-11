@@ -28,7 +28,7 @@ import dbus
 from . import command
 from ..source import Source
 from ..legacy_deb import LegacyDebSource
-from ..util import get_sources_dir, RepoError
+from ..util import get_sources_dir, RepoError, get_dbus_object
 
 class Remove(command.Command):
     # pylint: disable=no-self-use,too-few-public-methods
@@ -146,10 +146,8 @@ class Remove(command.Command):
                     remove_path.unlink()
                     remove_path_save.unlink(missing_ok=True)
                 except PermissionError:
-                    bus = dbus.SystemBus()
-                    privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+                    privileged_object = get_dbus_object()
                     privileged_object.delete_source(remove_path.name, key_file.name)
-                    privileged_object.exit()
 
         else:
             print('Canceled.')
