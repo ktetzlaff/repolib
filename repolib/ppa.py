@@ -204,7 +204,7 @@ class PPASource(source.Source):
         ppa_owner = self.raw_ppa[0]
         ppa_name = self.raw_ppa[1]
         
-        self.ident = 'binary'
+        self.ident = f'ppa-{ppa_owner}-{ppa_name}'
         self.name = self.make_default_name()
         self.uris = [f'http://ppa.launchpad.net/{ppa_owner}/{ppa_name}/ubuntu']
         self.suites = [DISTRO_CODENAME]
@@ -242,13 +242,14 @@ class PPASource(source.Source):
         Note: this method will fail if there isn't any PPA object for this
         source.
         """
-        import_dest = Path('/tmp', self.file.key_file.name)
+        key_path = util.get_keys_dir() / f'{self.ident}.gpg'
+        import_dest = Path('/tmp', key_path.name)
         if debug:
             if log:
                 log.info(
                     'Would fetch key with fingerprint %s to %s',
                     self.ppa.fingerprint,
-                    self.file.key_file
+                    key_path
                 )
             return
         
@@ -274,14 +275,14 @@ class PPASource(source.Source):
             export_cmd += [f'--keyring={import_dest}', '--export']
 
             try:
-                with open(self.file.key_file, mode='wb') as key_file:
+                with open(key_path, mode='wb') as key_file:
                     subprocess.run(import_cmd, check=True, input=key_data.encode())
                     subprocess.run(export_cmd, check=True, stdout=key_file)
             except PermissionError:
                 subprocess.run(import_cmd, check=True, input=key_data.encode())
                 bus = dbus.SystemBus()
                 privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
-                export_cmd += [str(self.file.key_file)]
+                export_cmd += [str(key_path)]
                 privileged_object.add_apt_signing_key(export_cmd)
 
 

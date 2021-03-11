@@ -235,6 +235,15 @@ class Source(deb822.Deb822):
         """
         return
     
+    def delete_key(self):
+        """ Delete the signing key file for this source."""
+        try:
+            self.key_file.unlink()
+        except PermissionError:
+            bus = dbus.SystemBus()
+            privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+            privileged_object.delete_source(, key_file.name)
+    
     def set_options(self, options):
         """Turn a one-line format options substring into a supported dict.
 
@@ -333,6 +342,7 @@ class Source(deb822.Deb822):
     @ident.setter
     def ident (self, ident: str):
         self._ident = ident
+        self.key_file =  f'{self.ident}.gpg' 
 
 
     @property
