@@ -602,29 +602,39 @@ class SourceFile:
         if not self.ident:
             raise SourceFileError('No Filename to save was specified.')
 
-        for source in self.sources.values():
-            source.make_key()
-        
-        if save:
-            try:
-                with open(self.source_path, mode='w') as sources_file:
-                    sources_file.write(self.generate_output())
+        if len(self.sources.values()) > 0:
+            for source in self.sources.values():
+                source.make_key()
             
-            except PermissionError:
-                privileged_object = util.get_dbus_object()
-                privileged_object.output_file_to_disk(
-                    f'{self.ident}.{self.format}',
-                    self.generate_output()
-                )
+            if save:
+                try:
+                    with open(self.source_path, mode='w') as sources_file:
+                        sources_file.write(self.generate_output())
+                
+                except PermissionError:
+                    bus = dbus.SystemBus()
+                    privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+                    privileged_object.output_file_to_disk(
+                        f'{self.ident}.{self.format}',
+                        self.generate_output()
+                    )
+            else:
+                print(self.generate_output())
         else:
-            print(self.generate_output())
-        
+            try:
+                self.source_path.unlink()
+            except PermissionError:
+                bus = dbus.SystemBus()
+                privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+                privileged_object.delete_source_file(self.source_path.name)
+
     def convert_formats(self):
         """ Convert the source file from its current format to the opposite."""
         try:
             self.source_path.unlink()
         except PermissionError:
-            privileged_object = util.get_dbus_object()
+            bus = dbus.SystemBus()
+            privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
             privileged_object.delete_source(
                 f"{self.ident}.{self.format}",
                 'None'
@@ -682,7 +692,6 @@ class SourceFile:
         raw_822: List[str] = []
         parsing_deb822: bool = False
         name:str = ''
-        source_count: int = 0
 
         for line in source_list:
 
@@ -712,11 +721,8 @@ class SourceFile:
                                 source.name = f'{name} Source code'
                         source.enabled = False
                         source.file = self
-                        source.ident = self.ident
-                        if source_count > 0:
-                            source.ident = f'{self.ident}-{source_count}'
-                        self.sources[source_count] = source
-                        source_count += 1
+                        source.ident = f'{self.ident}-{self.source_count}'
+                        self.sources[self.source_count] = source
                         self.items.append(source)
 
                     elif name_line:
@@ -741,11 +747,8 @@ class SourceFile:
                                 source.name = f'{name} Source code'
                         source.enabled = True
                         source.file = self
-                        source.ident = self.ident
-                        if source_count > 0:
-                            source.ident = f'{self.ident}-{source_count}'
-                        self.sources[source_count] = source
-                        source_count += 1
+                        source.ident = f'{self.ident}-{self.source_count}'
+                        self.sources[self.source_count] = source
                         self.items.append(source)
 
                 # Empty lines count as comments
@@ -798,12 +801,9 @@ class SourceFile:
                     source = Source()
                     source.load_from_data(raw_822[1:])
                     source.file = self
-                    source.ident = self.ident
-                    if source_count > 0:
-                        source.ident = f'{self.ident}-{source_count}'
-                    self.sources[source_count] = source
+                    source.ident = f'{self.ident}-{self.source_count}'
+                    self.sources[self.source_count] = source
                     self.items.append(source)
-                    source_count += 1
                     raw_822 = []
                     item += 1
                     self.items.append('')
@@ -815,12 +815,35 @@ class SourceFile:
             parsing_deb822 = False
             source = Source()
             source.load_from_data(raw_822[1:])
-            self.sources[source_count] = source
+            source.ident = f'{self.ident}-{self.source_count}'
+            self.sources[self.source_count] = source
             self.items.append(source)
-            source_count += 1
             raw_822 = []
             item += 1
             self.items.append('')
+
+    def get_source_index(self, source: Source = None, ident:str = None) -> int:
+        """ Get the index of a source, given the actual source or the ident.
+
+        Arguments:
+            :source Source: The source object (can be any Source subclass)
+            :ident str: The ident of the source to remove.
+        
+        Returns:
+            :int: The index of the source, or -1 if the source wasn't found.
+        """
+        if source:
+            for i in self.sources:
+                if self.sources[i] == source:
+                    return i
+        
+        if ident:
+            for i in self.sources:
+                if self.sources[i].ident == ident:
+                    return i
+        
+        return -1
+                
 
     def add_source(self, source: Source): 
         """ Adds a source to this file.
@@ -828,16 +851,44 @@ class SourceFile:
         Arguments:
             :source Source: The source to add (Can be any source subclass)            
         """
+        source.ident = f'{self.ident}-{self.source_count}'
         self.items.append(source)
-        source_count = len(self.sources.items) - 1 
-        self.sources[source_count] = source
+        self.sources[self.source_count] = source
     
-    def remove_source(self, source: int, errors: bool = False):
+    def remove_source(self, index: int, errors: bool = False):
         """ Remove a source from this file.
 
         Arguments:
-            :source int: The index of the source to remove
+            :index int: The index of the source to remove
         """
         remove_source = self.sources[index]
         self.items.remove(remove_source)
-        self.sources.pop(source, None)
+        self.sources.pop(index, None)
+        remove_source.delete_key()
+    
+    @property
+    def source_count(self) -> int:
+        """int: return the number of sources."""
+        return len(self.sources.values())
+
+    @property
+    def ident(self) -> str:
+        """str: the name of the file on disk."""
+        return self._ident
+    
+    @ident.setter
+    def ident(self, ident):
+        """ Also re-detect the file format."""
+        self._ident = ident
+        self.format = self.detect_file_format()
+    
+    @property
+    def format(self) -> str:
+        """str: the format of the file, either `list`, `sources`, or `none`"""
+        return self._format
+    
+    @format.setter
+    def format(self, format):
+        """ Need to update path when format changes"""
+        self.source_path = util.get_sources_dir() / f'{self.ident}.{format}'
+        self._format = format

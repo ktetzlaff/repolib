@@ -24,6 +24,7 @@ along with RepoLib.  If not, see <https://www.gnu.org/licenses/>.
 
 import re
 
+import dbus
 from debian import deb822
 
 from . import util
@@ -96,7 +97,7 @@ class Source(deb822.Deb822):
         """
         self.name = ''
         self.enabled = True
-        self.types = 'deb'
+        self.types = ['deb']
         self.uris = []
         self.suites = []
         self.components = []
@@ -233,15 +234,17 @@ class Source(deb822.Deb822):
 
         Note: This is intended to be used by subclasses.
         """
+        self.key_file = util.get_keys_dir() / f'{self.ident}.gpg'
         return
     
     def delete_key(self):
         """ Delete the signing key file for this source."""
         try:
-            self.key_file.unlink()
+            self.key_file.unlink(missing_ok=True)
         except PermissionError:
-            privileged_object = util.get_dbus_object()
-            privileged_object.delete_source(self.key_file.name)
+            bus = dbus.SystemBus()
+            privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+            privileged_object.delete_key(self.key_file.name)
     
     def set_options(self, options):
         """Turn a one-line format options substring into a supported dict.
@@ -341,7 +344,7 @@ class Source(deb822.Deb822):
     @ident.setter
     def ident (self, ident: str):
         self._ident = ident
-        self.key_file =  f'{self.ident}.gpg' 
+        self.key_file =  util.get_keys_dir() / f'{self.ident}.gpg' 
 
 
     @property

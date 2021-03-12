@@ -149,14 +149,10 @@ def url_validator(url):
     except:
         return False
 
-def get_dbus_object():
-    global PRIVILEGED_OBJECT
-    if PRIVILEGED_OBJECT:
-        return PRIVILEGED_OBJECT
-    else:
-        bus = dbus.SystemBus()
-        PRIVILEGED_OBJECT = bus.get_object('org.pop-os.repolib', '/Repo')
-        return PRIVILEGED_OBJECT
+def dbus_quit():
+    bus = dbus.SystemBus()
+    privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+    privileged_object.exit()
 
 def get_source_path(name, log=None):
     """ Tries to get the full path to the source.

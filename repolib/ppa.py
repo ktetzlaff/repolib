@@ -227,8 +227,10 @@ class PPASource(source.Source):
         """
         new_source = PPASource(self.shortcut)
         new_source = super().copy(source_code=source_code)
-        if self.ppa:
-            new_source.ppa = self.ppa
+        
+        if source_code:
+            new_source.name = f'{self.name} Source Code'
+        new_source.enabled = False
         return new_source
 
     def make_default_name(self, prefix='ppa-'):
@@ -242,14 +244,14 @@ class PPASource(source.Source):
         Note: this method will fail if there isn't any PPA object for this
         source.
         """
-        key_path = util.get_keys_dir() / f'{self.ident}.gpg'
-        import_dest = Path('/tmp', key_path.name)
+        super().make_key()
+        import_dest = Path('/tmp', self.key_file.name)
         if debug:
             if log:
                 log.info(
                     'Would fetch key with fingerprint %s to %s',
                     self.ppa.fingerprint,
-                    key_path
+                    self.key_file
                 )
             return
         
@@ -266,7 +268,7 @@ class PPASource(source.Source):
                 )
             return
         
-        with tempfile.TemporaryDirectory as tempdir:
+        with tempfile.TemporaryDirectory() as tempdir:
             import_cmd = GPG_KEYBOX_CMD.copy()
             import_cmd += [
                 f'--keyring={import_dest}', '--homedir', tempdir, '--import'
@@ -275,13 +277,14 @@ class PPASource(source.Source):
             export_cmd += [f'--keyring={import_dest}', '--export']
 
             try:
-                with open(key_path, mode='wb') as key_file:
+                with open(self.key_file, mode='wb') as key_file:
                     subprocess.run(import_cmd, check=True, input=key_data.encode())
                     subprocess.run(export_cmd, check=True, stdout=key_file)
             except PermissionError:
                 subprocess.run(import_cmd, check=True, input=key_data.encode())
-                privileged_object = util.get_dbus_object()
-                export_cmd += [str(key_path)]
+                bus = dbus.SystemBus()
+                privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
+                export_cmd += [str(self.key_file)]
                 privileged_object.add_apt_signing_key(export_cmd)
 
 
