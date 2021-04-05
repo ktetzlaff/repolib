@@ -29,6 +29,7 @@ from ..legacy_deb import LegacyDebSource
 from ..source import Source, SourceError
 from ..util import get_source_path
 from ..system import SystemSource
+from .. import get_all_sources
 
 class Modify(command.Command):
     """ Modify subcommand.
@@ -204,20 +205,14 @@ class Modify(command.Command):
     def run(self):
         """ Run the command."""
         self.log.debug('Modifying repository %s', self.repo)
-        full_path = get_source_path(self.repo, log=self.log)
-
-        if not full_path:
-            self.log.error('Could not find source %s', self.repo)
-            return False
+        sources, errors = get_all_sources(get_system=True)
+        for source in sources:
+            if source.ident == self.repo:
+                self.source = source
 
         if self.repo == 'system':
             self.source = SystemSource()
-        elif full_path.suffix == '.sources':
-            self.source = Source(ident=self.repo)
-        else:
-            self.source = LegacyDebSource(ident=self.repo)
 
-        self.source.load_from_file()
         self.log.debug('Actions taken: \n%s', self.actions)
         self.log.info('Source before:\n%s', self.source.make_source_string())
 
@@ -231,7 +226,7 @@ class Modify(command.Command):
             return False
 
         if not self.debug:
-            self.source.save_to_disk()
+            self.source.file.save_to_disk()
             return True
 
         return True

@@ -184,13 +184,18 @@ class PPASource(source.Source):
         fetch_data (bool): Whether to try and fetch metadata from Launchpad.
     """
 
-    def __init__(self, shortcut, fetch_data=True, verbose=False):
-        if not shortcut.startswith('ppa:'):
-            raise PPAError(f'The PPA shortcut {shortcut} is malformed')
-        super().__init__()
-        self.shortcut = shortcut
+    prefix = 'ppa:'
+
+    def __init__(self, *args, line=None, fetch_data=True, verbose=False, **kwargs):
+        if line:
+            if not line.startswith('ppa:'):
+                raise PPAError(f'The PPA shortcut {line} is malformed')
+        super().__init__(args, kwargs)
+        self.line = line
         self.verbose = verbose
         self.ppa = None
+        if line:
+            self.load_from_shortcut(fetch_data=fetch_data)
     
     def load_from_shortcut(self, fetch_data=True):
         """ Fills in the attributes based on the Shortcut details.
@@ -200,7 +205,7 @@ class PPASource(source.Source):
         """
         self.init_values()
 
-        self.raw_ppa = self.shortcut.replace('ppa:', '').split('/')
+        self.raw_ppa = self.line.replace('ppa:', '').split('/')
         ppa_owner = self.raw_ppa[0]
         ppa_name = self.raw_ppa[1]
         
@@ -212,6 +217,7 @@ class PPASource(source.Source):
 
         if fetch_data:
             self.ppa = get_info_from_lp(ppa_owner, ppa_name)
+            self.name = self.ppa.displayname
 
         self.enabled = True
     
@@ -225,7 +231,7 @@ class PPASource(source.Source):
         Returns:
             A Source() object identical to self.
         """
-        new_source = PPASource(self.shortcut)
+        new_source = PPASource(self.line)
         new_source = super().copy(source_code=source_code)
         
         if source_code:

@@ -36,12 +36,11 @@ VERSION = __version__.__version__
 # pylint: disable=broad-except
 # We want to be broad in catching exceptions here, as failure could mean
 # applications unexpectedly close
-def get_all_sources(get_system=False, get_exceptions=False):
+def get_all_sources(get_system=False):
     """ Returns a list of all the sources on the system.
 
     Arguments:
         get_system (bool): Whether to include the system repository or not.
-        get_exceptions (bool): Whether to return information about failures.
 
     Returns:
         Without `get_exceptions`, return the :obj:`list` of :obj:`Source`
@@ -50,61 +49,148 @@ def get_all_sources(get_system=False, get_exceptions=False):
             :obj:`dict` of :obj:`Exception`
         )
     """
+    files, errors = get_all_files(get_system=get_system)
+
+    sources = []
+
+    for file in files:
+        for source in file.sources.values():
+            has_uris = len(source.uris) > 0
+            has_suites = len(source.suites) > 0
+            if has_uris and has_suites:
+                sources.append(source)
+
+    return sources, errors
+
+def get_all_files(get_system=False):
+    """ Returns a list of all the source files on the system.
+
+    Arguments:
+        get_system (bool): Whether to include the system repository or not.
+
+    Returns:
+        Without `get_exceptions`, return the :obj:`list` of :obj:`Source`
+        With `get_exceptions`, return: (
+            :obj:`list` of :obj:`SourceFile`,
+            :obj:`dict` of :obj:`Exception`
+        )
+    """
     sources_path = util.get_sources_dir()
     sources_files = sources_path.glob('*.sources')
     list_files = sources_path.glob('*.list')
 
-    sources = []
+    files = []
     errors = {}
 
     if get_system:
-        source = SystemSource()
-        sources.append(source)
-
+        file = SystemSource()
+        files.append(file)
+    
     for file in sources_files:
         if file.stem == 'system':
             continue
-        source_file  = SourceFile(filename=file.name)
+        source_file  = SourceFile(ident=file.stem)
         try:
-            source_file.parse_file()
+            source_file.load_deb_sources()
+            files.append(source_file)
         except Exception as err:
-            source_file.parse_file()
+            source_file.load_deb_sources()
             errors[file] = err
-        else:
-            # The source should not be listed if it is empty
-            if source_file.single_source: 
-                has_uris = len(source_file.uris) > 0
-                has_suites = len(source_file.suites) > 0
-                if has_uris and has_suites:
-                    sources.append(source_file)
-            else:
-                for source in source_file.all_sources():
-                    has_uris = len(source.uris) > 0
-                    has_suites = len(source.suites) > 0
-                    if has_uris and has_suites:
-                        sources.append(source)
-
+    
     for file in list_files:
-        source_file = SourceFile(filename=file.name)
+        source_file = SourceFile(ident=file.stem)
         try:
-            source_file.parse_file()
+            source_file.load_deb_sources()
+            files.append(source_file)
         except Exception as err:
-            source_file.parse_file()
+            source_file.load_deb_sources()
             errors[file] = err
-        else:
-            # The source should not be listed if it is empty
-            if source_file.single_source: 
-                has_uris = len(source_file.uris) > 0
-                has_suites = len(source_file.suites) > 0
-                if has_uris and has_suites:
-                    sources.append(source_file)
-            else:
-                for source in source_file.all_sources():
-                    has_uris = len(source.uris) > 0
-                    has_suites = len(source.suites) > 0
-                    if has_uris and has_suites:
-                        sources.append(source)
+    
+    return files, errors
 
-    if get_exceptions:
-        return sources, errors
-    return sources
+def find_file(source_ident):
+    """ Finds a SourceFile object containing the ident supplied.
+
+    Arguments:
+        :str source_ident: The ident of the source to locate.
+    
+    Returns:
+        The SourceFile object containing a source with the given ident.
+    """
+    sources = get_all_sources()
+    for source in sources:
+        if source.ident == source_ident:
+            return source.file
+
+
+def repo_has_source_code(source):
+    """ Returns whether a repo has a matching source code repo available.
+
+    Arguments:
+        :source Source: The source to find a match for.
+    
+    Returns:
+        Tuplpe(:bool:, :Source:), whether the source has a source-code repo, and
+            the matched source code repo.
+    """
+
+    all_repos, errors = get_all_sources(get_system=True)
+
+    if source.file.format == 'list':
+        for i in [repo for repo in all_repos if repo.types == ['deb-src']]:
+            match_uris = source.uris == i.uris
+            match_suites = source.suites == i.suites
+            match_comps = source.components == i.components
+            
+            if match_uris and match_suites and match_comps:
+                return True, i
+        
+    elif source.file.format == 'sources':
+        if source.types == 'deb-src':
+            return False, None
+
+        return True, source
+        
+    return False, None
+
+def enable_code(source, enabled):
+    """ Sets the source code status for the given source.
+
+    Note: This will not save to disk; be sure to use the save method on the 
+    returned source's file attribute.
+
+    Arguments:
+        :source Source: The source to enable.
+        :enabled bool: The state of the source code.
+    
+    Returns: Tuple:
+        :Source: The Source object for the source code repo, or :None:
+        :Status: Blank if above is True, or an error message.
+    """
+
+    available, repo = repo_has_source_code(source)
+
+    if source.file.format == 'sources':
+        if not available:
+            return None, 'DEB822 format source is already a source-code repository'
+        
+        if enabled:
+            source.types = 'deb deb-src'
+            return source, 'DEB822: Source code enabled'
+        else:
+            source.types = 'deb'
+            return source, 'DEB822: Source code enabled.'
+    
+    elif source.file.format == 'list':
+        append = ''
+
+        if not available:
+            repo = source.copy(source_code = True)
+            repo.name = f'{repo.name} Source Code'
+            source.file.add_source(repo)
+            append = 'New source code repo created.'
+        
+        repo.enabled = enabled
+        return repo, f'Legacy: Source code set to {enabled} {append}'
+    
+    return None, 'Repository format not supported (must be .list or .sources).'

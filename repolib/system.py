@@ -51,7 +51,7 @@ class SystemSource(file.SourceFile):
         """
         super().__init__()
         self.ident = ident
-        self.parse_file()
+        self.load_deb_sources()
     
     def set_source_enabled(self, enabled:bool = True):
         """Enable or disable source code for the system sources.

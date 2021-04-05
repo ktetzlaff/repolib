@@ -22,6 +22,8 @@ along with RepoLib.  If not, see <https://www.gnu.org/licenses/>.
 Module for listing repos on the system in CLI applications.
 """
 
+import argparse
+import textwrap
 import traceback
 
 from ..deb import DebLine
@@ -29,7 +31,7 @@ from ..legacy_deb import LegacyDebSource
 from ..source import Source
 from ..file import SourceFile
 from ..util import get_sources_dir, RepoError
-from .. import get_all_sources
+from .. import get_all_sources, get_all_files
 
 from . import command
 
@@ -85,7 +87,17 @@ class List(command.Command):
             dest='names',
             help='Do not print names of repositories.'
         )
-
+        options.add_argument(
+            '-f',
+            '--no-file-names',
+            action='store_true',
+            help='Don\'t print names of files'
+        )
+        options.add_argument(
+            '--no-indentation',
+            action='store_true',
+            help=argparse.SUPPRESS
+        )
 
 
     def __init__(self, log, args, parser):
@@ -95,6 +107,9 @@ class List(command.Command):
         self.no_names = args.names
         self.source = ' '.join(args.repository)
         self.sources_dir = get_sources_dir()
+        self.sources, self.errors = get_all_sources(get_system=True)
+        self.skip_files = args.no_file_names
+        self.no_indent = args.no_indentation
 
     def list_all_sources(self):
         """ List all sources on the system, potentially with their info."""
@@ -109,16 +124,22 @@ class List(command.Command):
         if not self.no_names:
             print('Configured sources:')
 
-        sources, errors = get_all_sources(get_system=True, get_exceptions=True)
+        files, errors = get_all_files(get_system=True)
 
-        for source in sources:
-            self.log.debug('Found source file %s', source.filename)
-            if self.no_names:
-                print(f'{source.ident}')
-            else:
-                print(f'{source.ident} - {source.name}')
-            if self.verbose:
-                print(f'{source.make_source_string()}')
+        indent = '   '
+        if self.skip_files or self.no_indent:
+            indent = ''
+
+        for file in files:
+            self.log.debug('Found source file: %s', file.ident)
+            if not self.skip_files:
+                print(f'{file.ident}')
+            for source in file.sources.values():
+                if self.verbose:
+                    print(f'  {source.ident}:')
+                    print(textwrap.indent(source.make_source_string(), indent))
+                else:
+                    print(textwrap.indent(source.ident, indent))
 
         if sources_list_d_file and self.legacy:
             print('\n Legacy sources.list entries:\n')
@@ -148,34 +169,6 @@ class List(command.Command):
 
         return True
 
-    def get_source_path(self):
-        """ Tries to get the full path to the source.
-
-        This is necessary because some sources end in .list, others in .sources
-
-        Returns:
-            source.Source for the actual full path.
-        """
-        full_name = f'{self.source}.sources'
-        full_path = self.sources_dir / full_name
-        self.log.debug('Trying to load %s', full_path)
-        if full_path.exists():
-            self.log.debug('Path %s exists!', full_path)
-            source = Source(filename=full_path.name)
-            source.load_from_file()
-            return source
-
-        full_name = f'{self.source}.list'
-        full_path = self.sources_dir / full_name
-        self.log.debug('Trying to load %s', full_path)
-        if full_path.exists():
-            self.log.debug('Path %s exists!', full_path)
-            leg = LegacyDebSource(filename=full_path.name)
-            leg.load_from_file()
-            return leg
-
-        raise RepoError('The path does not exist (checked .sources and .list files.')
-
     def run(self):
         """ Run the command. """
         ret = False
@@ -184,7 +177,9 @@ class List(command.Command):
 
         else:
             try:
-                source = self.get_source_path()
+                for i in self.sources:
+                    if self.source == i.ident:
+                        source = i
             except RepoError:
                 self.log.error(
                     "Couldn't find the source file for %s. Check your spelling.",

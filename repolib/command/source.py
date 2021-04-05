@@ -21,9 +21,11 @@ along with RepoLib.  If not, see <https://www.gnu.org/licenses/>.
 Source Subcommand.
 """
 
+from ..source import Source
 from ..legacy_deb import LegacyDebSource
 from ..source import Source as Source_obj
 from ..util import get_source_path
+from .. import get_all_sources, enable_code
 
 from . import command
 
@@ -87,59 +89,43 @@ class Source(command.Command):
         args.enable | args.disable: whether to enable or disable source code.
         """
         super().finalize_options(args)
-        self.repo = ' '.join(args.repository)
+        self.repo_ident = ' '.join(args.repository)
+
+        repos, errors = get_all_sources(get_system=True)
+
+        self.repo = None
+        for source in repos:
+            if source.ident == self.repo_ident:
+                self.repo = source
+
+        if self.repo_ident == 'x-repolib-all-sources':
+            self.repo = 'x-repolib-no-source'
+
         self.enable = True
         if args.source_disable:
             self.enable = False
 
     def run(self):
         """ Run the command."""
-        if self.repo == 'x-repolib-all-sources':
-            self.log.error('You must specify a Repository')
+        if not self.repo:
+            self.error('Could not find the repo: %s', self.repo_ident)
+            return False
+        
+        if self.repo == 'x-repolib-no-source':
+            self.log.error('You must specify a repository')
             return False
 
-        self.log.debug('Setting for repo %s: Source Code: %s', self.repo, self.enable)
-        file_path = get_source_path(self.repo, log=self.log)
-        if file_path.suffix == '.sources':
-            repo = Source_obj(filename=file_path.name)
-        elif file_path.suffix == '.list':
-            repo = LegacyDebSource(filename=file_path.name)
+        self.log.debug('Setting for repo %s: Source Code: %s', self.repo.ident, self.enable)
 
-        repo.load_from_file()
+        source_code, status = enable_code(self.repo, self.enable)
 
-        try:
-            set_source_enabled(repo, self.enable)
-            if self.verbose:
-                print(repo.make_source_string())
-            if not self.debug:
-                repo.save_to_disk()
+        self.log.debug('Found repo: %s: %s', source_code.ident, source_code)
 
-        # pylint: disable=invalid-name
-        # This is a pretty widely used convention
-        except command.RepolibCommandError as e:
-            self.log.error(
-                'Could not change source code for %s:\n%s',
-                self.repo,
-                e
-            )
-
+        if not source_code:
+            self.log.error(status)
+            return false
+        
+        source_code.file.save_to_disk()
+        self.log.info(status)
         return True
 
-def set_source_enabled(repo, enabled):
-    """ Enables or disables Source Code for the given repository.
-
-    Arguments:
-        repo - Repolib.Source: The repository to enable or disable source for.
-        enabled - bool: The state to which source code should be set.
-    """
-    try:
-        if enabled:
-            repo.types = [command.AptSourceType.BINARY, command.AptSourceType.SOURCE]
-        else:
-            repo.types = [command.AptSourceType.BINARY]
-    # pylint: disable=invalid-name
-    # This is a pretty widely used convention
-    except Exception as e:
-        raise command.RepolibCommandError(
-            f'Could not set the source code for {repo.name} to {enabled}'
-        ) from e

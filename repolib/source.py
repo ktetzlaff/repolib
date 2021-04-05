@@ -85,10 +85,12 @@ class Source(deb822.Deb822):
     options_re = re.compile(r'[^@.+]\[([^[]+.+)\]\ ')
     uri_re = re.compile(r'\w+:(\/?\/?)[^\s]+')
 
-    def __init__(self, *args, ident=None, **kwargs):
+    def __init__(self, *args, line=None, ident=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.init_values()
         self.file = None
+        if line:
+            self.parse_debline(line)
 
     def init_values(self):
         """ Reset Values to blank defaults, and adds all of them to self.
@@ -142,11 +144,14 @@ class Source(deb822.Deb822):
             pass
         return new_source
     
-    def make_source_string(self):
+    def make_source_string(self, indent=0):
         """ Make a printable string of the source.
 
         This method produces output suitable for output to a user e.g. in a 
         command. For getting the actual data, use self.dump() instead.
+
+        Arguments:
+            :indent int: The indent to add to the output.
 
         Returns:
             str: The output string.

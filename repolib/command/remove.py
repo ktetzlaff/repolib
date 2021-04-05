@@ -26,9 +26,10 @@ from pathlib import Path
 import dbus
 
 from . import command
+from .. import get_all_sources
 from ..source import Source
 from ..legacy_deb import LegacyDebSource
-from ..util import get_sources_dir, RepoError, get_dbus_object
+from ..util import get_sources_dir, RepoError, dbus_quit
 
 class Remove(command.Command):
     # pylint: disable=no-self-use,too-few-public-methods
@@ -65,89 +66,47 @@ class Remove(command.Command):
 
     def __init__(self, log, args, parser):
         super().__init__(log, args, parser)
-        self.source = args.repository
+
+        self.source_name = args.repository
         self.sources_dir = get_sources_dir()
 
     def finalize_options(self, args):
         """ Finish setting up our options/arguments. """
         super().finalize_options(args)
-        self.source = args.repository
+        self.source, self.source_file = None, None
+        sources, errors = get_all_sources()
+        for source in sources:
+            if source.ident == args.repository:
+                self.source = source
+                self.source_file = source.file
         self.assume_yes = args.assume_yes
-
-    def get_source_path(self):
-        """ Tries to get the full path to the source.
-
-        This is necessary because some sources end in .list, others in .sources
-
-        Returns:
-            A tuple with the pathlib.Path to the sources, and the pathlib.Path
-            to the '.save' file.
-        """
-        full_name = f'{self.source}.sources'
-        full_path = self.sources_dir / full_name
-        self.log.debug('Trying to load %s', full_path)
-        if full_path.exists():
-            remove_source = Source(ident=self.source)
-            remove_source.load_from_file()
-            return full_path, full_path, remove_source
-
-        full_name = f'{self.source}.list'
-        full_path = self.sources_dir / full_name
-        self.log.debug('Trying to load %s', full_path)
-        if full_path.exists():
-            save_path = Path(f'{full_path}.save')
-            remove_source = LegacyDebSource(ident=self.source)
-            remove_source.load_from_file()
-            return full_path, save_path, remove_source
-
-        raise RepoError('The path does not exist (checked .sources and .list files.')
 
     def run(self):
         """ Run the command. """
 
-        if self.source.lower() == 'system':
+        self.log.debug('Removing %s', self.source)
+
+        if self.source.ident.lower() == 'system':
             self.log.error("You cannot remove the system sources!")
             return False
 
-        try:
-            remove_path, remove_path_save, remove_source = self.get_source_path()
-        except RepoError:
+        if not self.source:
             self.log.error(
-                'No source %s found on system. Check the spelling.', self.source
+                'Could not load the source "%s"; not found',
+                self.source
             )
             return False
-
-        key_file = remove_source.key_file
-
-        if self.assume_yes:
-            response = 'y'
-
-        else:
-            print(
-                f'You are about to remove the sources contained in {remove_path.name}.'
-                '\nAre you sure you want to do this?\n'
-            )
-            response = 'f'
-            while response.lower() not in ['y', 'n']:
-                response = input(f'Remove {remove_path.name}? (y/N) ')
-                if response == '':
-                    response = 'n'
+        
+        response = 'y'
+        if not self.assume_yes:
+            response = 'n'
+            print(f'This will remove the source {self.source.name}.')
+            response = input('Are you sure you want to do this? (y/N) ')
 
         if response.lower() == 'y':
-            if self.args.debug != 0:
-                self.log.info('Simulate: Remove %s', remove_path)
-                self.log.info('Simulate: Remove %s', remove_path_save)
-            else:
-                try:
-                    try:
-                        key_file.unlink()
-                    except FileNotFoundError:
-                        pass
-                    remove_path.unlink()
-                    remove_path_save.unlink(missing_ok=True)
-                except PermissionError:
-                    privileged_object = get_dbus_object()
-                    privileged_object.delete_source(remove_path.name, key_file.name)
+            source_index = self.source_file.get_source_index(self.source)
+            self.source_file.remove_source(source_index)
+            self.source_file.save_to_disk()
 
         else:
             print('Canceled.')

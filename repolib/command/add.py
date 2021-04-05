@@ -24,12 +24,14 @@ Module for adding repos to the system in CLI applications.
 
 from ..deb import DebLine
 from ..legacy_deb import LegacyDebSource
-from ..ppa import PPALine
-from ..util import DISTRO_CODENAME, CLEAN_CHARS
+from ..ppa import PPASource
+from ..file import SourceFile
+from ..util import DISTRO_CODENAME, CLEAN_CHARS, dbus_quit
 
 from . import command
 
 KEYSERVER = 'keyserver.ubuntu.com'
+SHORTCUTS = [PPASource]
 
 class Add(command.Command):
     """ Add subcommand.
@@ -42,6 +44,12 @@ class Add(command.Command):
         --source-code, -s
         --expand, -e
     """
+
+    shortcut_prefixes = {
+        'deb': DebLine,
+        'deb-src': DebLine,
+        PPASource.prefix: PPASource,
+    }
 
     @classmethod
     def init_options(cls, subparsers):
@@ -88,7 +96,7 @@ class Add(command.Command):
             '-i',
             '--identifier',
             default=['x-repolib-default-id'],
-            help='The identifier/filename to use for the new repo'
+            help='The filename to use for the new source'
         )
         options.add_argument(
             '-k',
@@ -100,6 +108,7 @@ class Add(command.Command):
     def finalize_options(self, args):
         """ Finish setting up options/arguments."""
         super().finalize_options(args)
+        self.deb_line = ' '.join(self.args.deb_line)
         self.expand = args.expand
         self.source_code = args.source_code
         self.disable = args.disable
@@ -138,82 +147,60 @@ class Add(command.Command):
         """ Run the command."""
         # pylint: disable=too-many-branches
         # We just need all these different checks.
-        debline = ' '.join(self.args.deb_line)
-        if self.args.deb_line == '822styledeb':
+        if self.deb_line == '822styledeb':
             self.parser.print_usage()
             self.log.error('A repository is required.')
             return False
 
-        if debline.startswith('http') and len(debline.split()) == 1:
-            debline = f'deb {debline} {DISTRO_CODENAME} main'
+        if self.deb_line.startswith('http') and len(self.deb_line.split()) == 1:
+            self.deb_line = f'deb {self.deb_line} {DISTRO_CODENAME} main'
 
         print('Fetching repository information...')
 
-        new_source = LegacyDebSource()
-        if debline.startswith('ppa:'):
-            add_source = PPALine(debline, verbose=self.verbose)
+        new_file = SourceFile()
 
-        elif debline.startswith('deb'):
-            self.expand = False
-            self.skip_keys = True
-            add_source = DebLine(debline)
+        self.log.debug('Adding line %s', self.deb_line)
 
-        else:
-            self.log.critical(
-                'The line "%s" is malformed. Double-check the spelling.',
-                debline
-            )
-            return False
+        for prefix in self.shortcut_prefixes:
+            self.log.debug('Trying prefix %s', prefix)
+            if self.deb_line.startswith(prefix):
+                self.log.debug('Line is prefix: %s', prefix)
+                new_source = self.shortcut_prefixes[prefix](line=self.deb_line)
+                break
+    
+        new_source.enabled = not self.disable
+        new_file.ident = new_source.make_default_name()
+        new_file.add_source(new_source)
 
-        new_source.name = add_source.name
-        new_source.sources.append(add_source)
-
-        if not debline.startswith('deb-src'):
-            src_source = add_source.copy()
-            src_source.enabled = False
-        else:
-            src_source = add_source
-
-        src_source.enabled = self.source_code
-
-        if not debline.startswith('deb-src'):
-            new_source.sources.append(src_source)
-
-        new_source.load_from_sources()
-
-        add_source.enabled = True
-
-        if self.disable:
-            for repo in new_source.sources:
-                repo.enabled = False
-            new_source.enabled = False
-
-        self.set_names(new_source)
-
-        self.log.debug(new_source.name)
-        self.log.debug(new_source.filename)
-
-        if self.args.debug > 0:
-            self.log.info('Debug mode set, not saving.')
-            for src in new_source.sources:
-                print(f'{src.dump()}\n')
-            self.log.info('Filename to save: %s', new_source.filename)
-            print(f'{new_source.make_deblines()}')
-
+        if not self.deb_line.startswith('deb-src'):
+            # Only add source code repos if the line is not a source code repo
+            new_source_code = new_source.copy(source_code=True)
+            new_source_code.enabled = self.source_code
+            new_file.add_source(new_source_code)
+        
+        new_file.format = 'list'
         if self.expand:
-            print(new_source.sources[0].make_source_string())
+            print('Adding the following source:')
             try:
-                print(f'{add_source.ppa.description}\n')
+                print(new_source.ppa.description)
+                print('\n')
+                print(new_file.generate_output())
             except AttributeError:
-                pass
-            print('Press [ENTER] to contine or Ctrl + C to cancel.')
-            input()
-
-        if not self.skip_keys:
-            add_source.add_ppa_key(add_source, debug=self.debug, log=self.log)
+                print(new_file.generate_output())
+            self.log.debug('File format: %s', new_file.format)
+            self.log.debug('Filename: %s.%s', new_file.ident, new_file.format)
+            try:
+                input(
+                    'Press ENTER to continue adding this source, or Ctrl+C '
+                    'to cancel: '
+                )
+            except KeyboardInterrupt:
+                # Handle this nicely to avoid printing errors when a user cancels
+                exit(0)
 
         if self.args.debug == 0:
-            new_source.save_to_disk()
+            new_file.save_to_disk(skip_keys=self.skip_keys)
+            dbus_quit()
             return True
 
         return False

@@ -99,7 +99,9 @@ class Repo(dbus.service.Object):
             sender, conn, 'org.pop_os.repolib.modifysources'
         )
         source_file = self.sources_dir / filename
+        save_file = self.sources_dir / f'{source_file.stem}.save'
         source_file.unlink()
+        save_file.unlink(missing_ok=True)
     
     @dbus.service.method(
         "org.pop_os.repolib.Interface",
