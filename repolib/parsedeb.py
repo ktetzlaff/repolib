@@ -20,8 +20,9 @@ You should have received a copy of the GNU Lesser General Public License
 along with RepoLib.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-from os import name
 import string
+
+from . import util
 
 class ParseDebError(Exception):
     """ Exceptions related to parsing deb lines."""
@@ -36,41 +37,35 @@ class ParseDebError(Exception):
         self.code = code
 
 def debsplit(line:str) -> list:
-    """ improved string.split() with support for things like [] options. 
+    """ Improved string.split() with support for things like [] options. 
     
     Adapted from python-apt
 
     Arguments:
         line(str): The line to split up.
     """
-    line:str = line.strip()
-    parts:list = []
-    temp:str = ''
-
-    # parsing for within [...]
-    brkt_found: bool = False
-    space_found: bool = False
-
-    for i in range(len(line)):
-        if line[i] == '[':
-            brkt_found = True
-            temp += line[i]
-        elif line[i] == ']':
-            brkt_found = False
-            temp += line[i]
-        elif space_found and not line[i].isspace():
-            space_found = False
-            parts.append(temp)
-            temp = line[i]
-        elif line[i].isspace() and not brkt_found:
-            space_found = True
+    line = line.strip()
+    pieces:list = []
+    tmp:str = ""
+    # we are inside a [..] block
+    p_found = False
+    for char in line:
+        if char == '[':
+            p_found = True
+            tmp += char
+        elif char == ']':
+            p_found = False
+            tmp += char
+        elif char.isspace() and not p_found:
+            pieces.append(tmp)
+            tmp = ''
+            continue
         else:
-            temp += line[i]
-        
-        if len(temp) > 0:
-            parts.append(temp)
-        
-        return parts
+            tmp += char
+    # append last piece
+    if len(tmp) > 0:
+        pieces.append(tmp)
+    return pieces
 
 def parse_name_ident(comment:str) -> tuple:
     """ Find a Repolib name within the given comment string.
@@ -91,12 +86,7 @@ def parse_name_ident(comment:str) -> tuple:
             ident (str): The detected ident, or None
             comment (str): The string with the name removed
     """
-    # Clean up the leading comment markers
-    while True:
-        comment = comment.strip('#')
-        comment = comment.strip()
-        if not comment.startswith('#'):
-            break
+    comment = strip_hashes(comment)
 
     parts: list = comment.split()
     name_found = False
@@ -104,11 +94,7 @@ def parse_name_ident(comment:str) -> tuple:
     name:str = ''
     ident:str = ''
     comment:str = ''
-    print(parts)
     for item in parts:
-        print(item)
-        print(f'Name: "{name}"; Ident: "{ident}"; Comment: "{comment}"')
-        print(f'Parsing name: {name_found}; Parsing ident: {ident_found}')
         item_is_name = item.strip('#') == 'X-Repolib-Name:'
         item_is_ident = item.strip('#') == 'X-Repolib-Ident:'
         
@@ -145,6 +131,24 @@ def parse_name_ident(comment:str) -> tuple:
 
     return name, ident, comment
 
+def strip_hashes(line:str) -> str:
+    """ Strips the leading #'s from the given line.
+    
+    Arguments:
+        line (str): The line to strip.
+    
+    Returns:
+        (str): The input line without any leading/trailing hashes or 
+            leading/trailing whitespace.
+    """
+    while True:
+        line = line.strip('#')
+        line = line.strip()
+        if not line.startswith('#'):
+            break
+    
+    return line
+
 
 class ParseDeb:
     """ Parsing for source entries. 
@@ -152,7 +156,13 @@ class ParseDeb:
     Contains parsing helpers for one-line format sources.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, debug:bool = False) -> None:
+        """
+        Arguments:
+            debug (bool): In debug mode, the structured data is always returned
+                at the end, instead of checking for sanity (default: `False`)
+        """
+        self.debug = debug
         self.last_line: str = ''
         self.last_line_valid: bool = False
         self.curr_line: str = ''
@@ -160,6 +170,8 @@ class ParseDeb:
     
     def parse_line(self, line:str) -> dict:
         """ Parse a deb line into its individual parts.
+
+        Adapted from python-apt
 
         Arguments:
             line (str): The line input to parse
@@ -170,7 +182,6 @@ class ParseDeb:
         self.last_line = self.curr_line
         self.last_line_valid = self.curr_line_valid
         self.curr_line = line.strip()
-
         parts:list = []
 
         line_is_comment = self.curr_line == '#'
@@ -180,20 +191,103 @@ class ParseDeb:
         
         line_parsed: dict = {}
         line_parsed['enabled'] = True
+        line_parsed['name'] = ''
+        line_parsed['ident'] = ''
         line_parsed['comments'] = ''
+        line_parsed['repo_type'] = ''
+        line_parsed['uri'] = ''
+        line_parsed['suite'] = ''
+        line_parsed['components'] = []
         
         if line.startswith('#'):
             line_parsed['enabled'] = False
-            parts = line[1:].split()
+            line = strip_hashes(line)
+            parts = line.split()
             if not parts[0] in ['deb', 'deb-src']:
                 raise ParseDebError(f'Current line "{self.curr_line}" is invalid')
-            
-            else:
-                # Remove the leading comment marker
-                line = line[1:]
         
         comments = line.find('#')
         if comments > 0:
-            raw_comments = line[i + 1]
+            raw_comments:list = line[comments + 1:]
+            (
+                line_parsed['name'],
+                line_parsed['ident'],
+                line_parsed['comment']
+            ) = parse_name_ident(raw_comments)
+            line = line[:comments]
+        
+        parts = debsplit(line)
+        if len(parts) < 3: # We need at least a type, a URL, and a component
+            raise ParseDebError(
+                f'The line "{self.curr_line}" does not have enough pieces to be'
+                'valid'
+            )
+        # Determine the type of the repo
+        repo_type:str = parts.pop(0)
+        if repo_type in ['deb', 'deb-src']:
+            line_parsed['repo_type'] = repo_type
+        else:
+            raise ParseDebError(f'The line "{self.curr_line}" is of invalid type.')
 
+        # Determine the properties of our repo line
+        uri_index:int = 0
+        is_cdrom: bool = False
+        ## The URI index is the vital piece of information we need to parse the 
+        ## deb line, as it's position determines what other components are 
+        ## present and where they are. This determines the location of the URI
+        ## regardless of where it's at.
+        for part in parts:
+            if '[' in part:
+                if 'cdrom' in part:
+                    is_cdrom = True
+                    uri_index = parts.index(part)
+                else:
+                    uri_index += 1
+        
+        if is_cdrom:
+            # This could maybe change if the parser now differentiates between 
+            # CDROM URIs and option lists
+            raise ParseDebError('Repolib cannot currently accept CDROM Sources')
 
+        if uri_index != 0:
+            line_parsed['options'] = parts.pop(0)
+        
+        if len(line_parsed) < 2: # Should have at minimum a URI and a suite/path
+            raise ParseDebError(
+                f'The line "{self.curr_line}" does not have enough pieces to be'
+                'valid'
+            )
+        
+        line_uri = parts.pop(0)
+        if util.url_validator(line_uri):
+            line_parsed['uri'] = line_uri
+        
+        else:
+            raise ParseDebError(
+                f'The line "{self.curr_line}" has invalid URI: {line_uri}'
+            )
+
+        line_parsed['suite'] = parts.pop(0)
+        
+        line_components:list = []
+        for comp in parts:
+            line_parsed['components'].append(comp)
+        
+        
+        has_type = line_parsed['repo_type']
+        has_uri = line_parsed['uri']
+        has_suite = line_parsed['suite']
+
+        if has_type and has_uri and has_suite:
+            # if we have these three minimum components, we can proceed and the
+            # line is valid. Otherwise, error out.
+            return line_parsed
+        
+        if self.debug:
+            return line_parsed
+        
+        raise ParseDebError(
+            f'The line {self.curr_line} could not be parsed due to an '
+            'unknown error (Probably missing the repo type, URI, or a '
+            'suite/path).'
+        )
