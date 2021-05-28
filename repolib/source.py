@@ -28,7 +28,7 @@ import dbus
 from debian import deb822
 
 from . import util
-
+from .parsedeb import ParseDeb
 
 class SourceError(Exception):
     """ Exception from a source object."""
@@ -84,34 +84,42 @@ class Source(deb822.Deb822):
     }
     options_re = re.compile(r'[^@.+]\[([^[]+.+)\]\ ')
     uri_re = re.compile(r'\w+:(\/?\/?)[^\s]+')
+    debline_parser = ParseDeb()
 
-    def __init__(self, *args, line=None, ident=None, **kwargs):
+    def __init__(self, *args, line:str = None, ident:str = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.init_values()
         self.file = None
+        if ident:
+            self.ident = ident
         if line:
             self.parse_debline(line)
 
-    def init_values(self):
+    def init_values(self) -> None:
         """ Reset Values to blank defaults, and adds all of them to self.
 
         We need to do this to ensure they are in the correct order.
         """
-        self.name = ''
-        self.enabled = True
-        self.types = ['deb']
-        self.uris = []
-        self.suites = []
-        self.components = []
-        self.options = {}
+        self.ident:str = ''
+        self.name:str = ''
+        self.enabled:bool = True
+        self.types:list(str) = ['deb']
+        self.uris:list(str) = []
+        self.suites:list(str) = []
+        self.components:list(str) = []
+        self.options:dict(str, str) = {}
+        self.comment:str = ''
     
-    def load_from_data(self, data):
+    def load_from_data(self, data:list) -> None:
         """ Loads the given data into self.
 
         Arguments:
             data (list[str]): The data to load from.
         """
         self.init_values()
+        if data[0].strip().startswith('#'):
+            self.comment = data.pop(0)
+            
         super().__init__(sequence=data)
     
     # pylint: disable=arguments-differ
@@ -144,7 +152,7 @@ class Source(deb822.Deb822):
             pass
         return new_source
     
-    def make_source_string(self, indent=0):
+    def make_source_string(self, indent:int = 0) -> str:
         """ Make a printable string of the source.
 
         This method produces output suitable for output to a user e.g. in a 
@@ -157,8 +165,11 @@ class Source(deb822.Deb822):
             str: The output string.
         """
         self.enabled = self.enabled
-        print_output = self.dump()
-        print_output.replace('X-Repolib-Name', 'Name')
+        print_output:str = self.dump()
+        print_output = print_output.replace('X-Repolib-Name', 'Name')
+        print_output = print_output.replace('X-Repolib-Ident: ', '')
+        print_output = print_output.replace(self.ident, f'{self.ident}:')
+        print_output += f'Comments: {self.comment}'
 
         return print_output
     
@@ -168,12 +179,11 @@ class Source(deb822.Deb822):
         Returns:
             str: The generated string.
         """
-        save_output = ''
-        save_output += f'## {self.ident}\n'
+        save_output = f'# {self.comment}\n'
         save_output += self.dump()
         return save_output
     
-    def make_debline(self):
+    def make_debline(self) -> str:
         """ Output this source as a one-line format source line.
 
         Note: this is expected to fail if there is more than one type, URI, or
@@ -207,11 +217,13 @@ class Source(deb822.Deb822):
             line += f'{component} '
         
         line += f' ## X-Repolib-Name: {self.name}'
+        line += f' # X-Repolib-Ident: {self.ident}'
+        line += f' # {self.comment}'
 
         return line
 
     
-    def make_default_name(self, prefix=''):
+    def make_default_name(self, prefix='') -> str:
         """ Create a default name for this source.
 
         Arguments:
@@ -234,6 +246,15 @@ class Source(deb822.Deb822):
         
         return name
     
+    def make_default_ident(self) -> str:
+        """ Make a default ident if one is not provided.
+
+        The ident is used to uniquely identify the source within a file. 
+        
+        Returns:
+            str: The generated ident
+        """
+    
     def make_key(self):
         """ Create a signing key for this source.
 
@@ -251,39 +272,7 @@ class Source(deb822.Deb822):
             privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
             privileged_object.delete_key(self.key_file.name)
     
-    def set_options(self, options):
-        """Turn a one-line format options substring into a supported dict.
-
-        Arguments:
-            options (str): the one-line format options string to parse.
-        
-        Returns:
-            dict: The parsed options and values.
-        """
-        # Split the option string into a list of chars, so that we can replace
-        # the first and last characters ([ and ]) with spaces.
-        ops = list(options)
-        ops[0] = " "
-        ops[-1] = " "
-        options = "".join(ops).strip()
-
-        for replacement in self.options_d:
-            options = options.replace(replacement, self.options_d[replacement])
-
-        options = options.replace('=', ',')
-        options_list = options.split()
-
-        options_output = {}
-
-        for i in options_list:
-            option = i.split(',')
-            values_list = []
-            for value in option[1:]:
-                values_list.append(value)
-            options_output[option[0]] = ' '.join(values_list)
-        return options_output
-    
-    def parse_debline(self, line):
+    def parse_debline(self, line:str) -> None:
         """ Parse a one-line format source.
         
         Arguments:
@@ -293,63 +282,41 @@ class Source(deb822.Deb822):
 
         if not util.validate_debline(line):
             raise SourceError(f'The line {line} is malformed.')
-
-        if '# X-Repolib-Name: ' in line:
-            name_line = line.replace('# X-Repolib-Name: ', '\x05')
-            name_list = name_line.split('\x05')
-            self.name = name_list[-1].strip()
-
-        # Enabled vs. Disabled
-        self.enabled = True
-        if line.startswith('#'):
-            self.enabled = False
-            line = line.replace('#', '', 1)
-            line = line.strip()
-
-        # URI parsing
-        for word in line.split():
-            if util.url_validator(word):
-                self.uris = [word]
-                line_uri = line.replace(word, '')
-
-        # Options parsing
-        try:
-            options = self.options_re.search(line_uri).group()
-            opts = self.set_options(options.strip())
-            self.options = opts.copy()
-            line_uri = line_uri.replace(options, '')
-        except AttributeError:
-            pass
-
-        deb_list = line_uri.split()
-
-        # Type Parsing
-        self.types = ['deb']
-        if deb_list[0] == 'deb-src':
-            self.types = ['deb-src']
-
-        # Suite Parsing
-        self.suites = [deb_list[1]]
-
-        # Components parsing
-        comps = []
-        for item in deb_list[2:]:
-            if not item.startswith('#'):
-                comps.append(item)
-            else:
-                break
-        self.components = comps
-
+        
+        parsed_debline = self.debline_parser.parse_line(line)
+        self.enabled = parsed_debline['enabled']
+        self.ident = parsed_debline['ident']
+        self.name = parsed_debline['name']
+        self.comment = parsed_debline['comment']
+        self.types = [parsed_debline['repo_type']]
+        self.uris = [parsed_debline['uri']]
+        self.suites = [parsed_debline['suite']]
+        self.components = parsed_debline['components']
+        self.options = parsed_debline['options'].copy()
+    
+    def dump(self) -> str:
+        """ Override to add options to output."""
+        output:str = super().dump()
+        for key in self.options:
+            output += f'{key}: {self.options[key]}\n'
+        
+        return output
     
     @property
     def ident(self) -> str:
         """ str: The unique identifier for this source within its file"""
-        return self._ident
+        if not self['X-Repolib-Ident']:
+            self['X-Repolib-Ident'] = self.make_default_ident()
+        
+        return self['X-Repolib-Ident']
     
     @ident.setter
-    def ident (self, ident: str):
-        self._ident = ident
-        self.key_file =  util.get_keys_dir() / f'{self.ident}.gpg' 
+    def ident (self, ident: str) -> None:
+        # self._ident = ident
+        # self.key_file =  util.get_keys_dir() / f'{self.ident}.gpg' 
+
+        ident = ident.translate(util.CLEAN_CHARS)
+        self['X-Repolib-Ident'] = ident
 
 
     @property

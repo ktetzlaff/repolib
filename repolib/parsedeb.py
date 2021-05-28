@@ -45,6 +45,11 @@ def debsplit(line:str) -> list:
         line(str): The line to split up.
     """
     line = line.strip()
+    line_list = line.split()
+    for i in line_list:
+        if util.url_validator(i):
+            line_list[line_list.index(i)] = decode_brackets(i)
+    line = ' '.join(line_list)
     pieces:list = []
     tmp:str = ""
     # we are inside a [..] block
@@ -67,6 +72,40 @@ def debsplit(line:str) -> list:
         pieces.append(tmp)
     return pieces
 
+def encode_brackets(word:str) -> str:
+    """ Encodes any [ and ] brackets into URL-safe form
+
+    Technically we should never be recieving these, and there are other things 
+    which should technically be encoded as well. However, square brackets 
+    actively break the URL parsing, and must be strictly avoided.
+
+    Arguments:
+        word (str): the string to encode brackets in.
+    
+    Returns:
+        `str`: the encoded string.
+    """
+    word = word.replace('[', '%5B')
+    word = word.replace(']', '%5D')
+    return word
+
+def decode_brackets(word:str) -> str:
+    """ Un-encodes [ and ] from the input
+
+    Since our downstream libraries should also be encoding these correctly, it 
+    is better to retain these as the user entered, as that ensures they can 
+    recognize it properly.
+
+    Arguments:
+        word (str): The string to decode.
+
+    Returns:
+        `str`: the decoded string.
+    """
+    word = word.replace('%5B', '[')
+    word = word.replace('%5D', ']')
+    return word
+
 def parse_name_ident(comment:str) -> tuple:
     """ Find a Repolib name within the given comment string.
 
@@ -88,6 +127,10 @@ def parse_name_ident(comment:str) -> tuple:
     """
     comment = strip_hashes(comment)
 
+    # Used for sanity checking later
+    has_name = 'X-Repolib-Name:' in comment
+    has_ident = 'X-Repolib-Ident' in comment
+
     parts: list = comment.split()
     name_found = False
     ident_found = False
@@ -95,8 +138,8 @@ def parse_name_ident(comment:str) -> tuple:
     ident:str = ''
     comment:str = ''
     for item in parts:
-        item_is_name = item.strip('#') == 'X-Repolib-Name:'
-        item_is_ident = item.strip('#') == 'X-Repolib-Ident:'
+        item_is_name = item.strip('#').startswith('X-Repolib-Name:')
+        item_is_ident = item.strip('#').startswith('X-Repolib-Ident:')
         
         if '#' in item and not item_is_name and not item_is_ident:
             name_found = False
@@ -129,6 +172,18 @@ def parse_name_ident(comment:str) -> tuple:
     ident = ident.strip()
     comment = comment.strip()
 
+    # Final sanity checking
+    if has_name and not name:
+        raise ParseDebError(
+            f'Could not parse repository name from comment {comment}. Make sure '
+            'you have a space between the colon and the Name'
+        )
+    if has_ident and not ident:
+        raise ParseDebError(
+            f'Could not parse repository ident from comment {comment}. Make sure '
+            'you have a space between the colon and the Ident'
+        )
+
     return name, ident, comment
 
 def strip_hashes(line:str) -> str:
@@ -156,6 +211,38 @@ class ParseDeb:
     Contains parsing helpers for one-line format sources.
     """
 
+    options_d = {
+        'arch': 'Architectures',
+        'lang': 'Languages',
+        'target': 'Targets',
+        'pdiffs': 'PDiffs',
+        'by-hash': 'By-Hash',
+        'allow-insecure': 'Allow-Insecure',
+        'allow-weak': 'Allow-Weak',
+        'allow-downgrade-to-insecure': 'Allow-Downgrade-To-Insecure',
+        'trusted': 'Trusted',
+        'signed-by': 'Signed-By',
+        'check-valid-until': 'Check-Valid-Until',
+        'valid-until-min': 'Valid-Until-Min',
+        'valid-until-max': 'Valid-Until-Max'
+    }
+
+    outoptions_d = {
+        'Architectures': 'arch',
+        'Languages': 'lang',
+        'Targets': 'target',
+        'PDiffs': 'pdiffs',
+        'By-Hash': 'by-hash',
+        'Allow-Insecure': 'allow-insecure',
+        'Allow-Weak': 'allow-weak',
+        'Allow-Downgrade-To-Insecure': 'allow-downgrade-to-insecure',
+        'Trusted': 'trusted',
+        'Signed-By': 'signed-by',
+        'Check-Valid-Until': 'check-valid-until',
+        'Valid-Until-Min': 'valid-until-min',
+        'Valid-Until-Max': 'valid-until-max'
+    }
+
     def __init__(self, debug:bool = False) -> None:
         """
         Arguments:
@@ -167,6 +254,37 @@ class ParseDeb:
         self.last_line_valid: bool = False
         self.curr_line: str = ''
         self.curr_line_valid: str = False
+    
+    def parse_options(self, options:str) -> dict:
+        """ Parses a string of options into a dictionary that repolib can use.
+
+        Arguments:
+            options(str): The string with options returned from the line parser.
+        
+        Returns:
+            `dict`: The dictionary of options with key:val pairs (may be {})
+        """
+        options = options.strip()
+        options = options[1:-1].strip() # Remove enclosing brackets
+        options = options.split()
+
+        parsed_options:dict(str, str) = {}
+
+        for opt in options:
+            pre_key, values = opt.split('=')
+            values = values.split(',')
+            value:str = ' '.join(values)
+            try:
+                key:str = self.options_d[pre_key]
+            except KeyError:
+                raise ParseDebError(
+                    f'Could not parse line {self.curr_line}: option {key} is '
+                    'not a valid debian repository option or is unsupported.'
+                )
+            parsed_options[key] = value
+        
+        return parsed_options
+
     
     def parse_line(self, line:str) -> dict:
         """ Parse a deb line into its individual parts.
@@ -193,11 +311,12 @@ class ParseDeb:
         line_parsed['enabled'] = True
         line_parsed['name'] = ''
         line_parsed['ident'] = ''
-        line_parsed['comments'] = ''
+        line_parsed['comment'] = ''
         line_parsed['repo_type'] = ''
         line_parsed['uri'] = ''
         line_parsed['suite'] = ''
         line_parsed['components'] = []
+        line_parsed['options'] = {}
         
         if line.startswith('#'):
             line_parsed['enabled'] = False
@@ -237,12 +356,12 @@ class ParseDeb:
         ## present and where they are. This determines the location of the URI
         ## regardless of where it's at.
         for part in parts:
-            if '[' in part:
+            if part.startswith('['):
                 if 'cdrom' in part:
                     is_cdrom = True
                     uri_index = parts.index(part)
                 else:
-                    uri_index += 1
+                    uri_index = 1
         
         if is_cdrom:
             # This could maybe change if the parser now differentiates between 
@@ -250,7 +369,7 @@ class ParseDeb:
             raise ParseDebError('Repolib cannot currently accept CDROM Sources')
 
         if uri_index != 0:
-            line_parsed['options'] = parts.pop(0)
+            line_parsed['options'] = self.parse_options(parts.pop(0))
         
         if len(line_parsed) < 2: # Should have at minimum a URI and a suite/path
             raise ParseDebError(
@@ -281,10 +400,10 @@ class ParseDeb:
         if has_type and has_uri and has_suite:
             # if we have these three minimum components, we can proceed and the
             # line is valid. Otherwise, error out.
-            return line_parsed
+            return line_parsed.copy()
         
         if self.debug:
-            return line_parsed
+            return line_parsed.copy()
         
         raise ParseDebError(
             f'The line {self.curr_line} could not be parsed due to an '
