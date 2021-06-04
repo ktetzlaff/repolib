@@ -181,7 +181,7 @@ def get_source_path(name, log=None):
         return full_path
     return None
 
-def get_keys_dir(testing=False):
+def get_keys_dir(testing:bool = False) -> Path:
     """ Get the path to the signing keys dir.
 
     Arguments:
