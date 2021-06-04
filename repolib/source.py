@@ -302,6 +302,36 @@ class Source(deb822.Deb822):
         
         return output
     
+    def _compare_ident(self, source):
+        """ Compare the ident of source and self
+
+        Return True if they are equal"""
+        if self.ident == source.ident:
+            return True
+        return False
+    
+    def compare_source(self, source, compare_types: bool = True):
+        """ Compare self with source. Return True if identical
+
+        This method ignores certain immaterial parameters (like name and ident)
+        because they don't affect the technical equivalence. This prevents us 
+        using self == source.
+        """
+        types_equal = True
+        if compare_types:
+            types_equal = self.types == source.types
+        uris_equal = self.uris == source.uris
+        suites_equal = self.suites == source.suites
+        components_equal = self.components == source.components
+
+        for cond in (types_equal, uris_equal, suites_equal, components_equal):
+            if not cond:
+                # If any of these aren't the same, then the sources are 
+                # technically different and we should return False.
+                return False
+        return True
+
+    
     @property
     def ident(self) -> str:
         """ str: The unique identifier for this source within its file"""
