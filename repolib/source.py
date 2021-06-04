@@ -306,7 +306,7 @@ class Source(deb822.Deb822):
     def ident(self) -> str:
         """ str: The unique identifier for this source within its file"""
         if not self['X-Repolib-Ident']:
-            self['X-Repolib-Ident'] = self.make_default_ident()
+            return ''
         
         return self['X-Repolib-Ident']
     
