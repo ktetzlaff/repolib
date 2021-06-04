@@ -56,7 +56,7 @@ class SourceFile:
         self.format: str = self.detect_file_format()
         self.source_path: Path = util.get_sources_dir() / f'{self.ident}.{self.format}'
         self.items = ['## Added/managed by Repolib', '']
-        self.sources: Dict = {}
+        self.sources: dict = {}
         self.key_file: Path = util.get_keys_dir() / f'{self.ident}.gpg'
     
     def detect_file_format(self) -> str:
@@ -152,6 +152,24 @@ class SourceFile:
         
         return output
     
+    def _line_to_source(self, line:str):
+        """ Convert a deb line to a source object."""
+        source = Source()
+        source.parse_debline(line)
+        source.file = self
+
+        if not source.name:
+            if source.types == ['deb']:
+                source.name = f'{self.ident} Binary'
+            elif source.types == ['deb-src']:
+                source.name = f'{self.ident} Source Code'
+        
+        if not source.ident:
+            if source.types == ['deb']:
+                source.ident = f'binary'
+            elif source.types == ['deb-src']:
+                source.ident = f'source'
+    
     def load_deb_sources(self, ident: str = ''):
         """ Parses the contents of the file.
 
@@ -203,16 +221,8 @@ class SourceFile:
                             )
                         source = Source()
                         source.parse_debline(line)
-                        if name:
-                            if not source.name:
-                                source.name = name
-                            if source.types == [util.AptSourceType.SOURCE]:
-                                source.name = f'{name} Source code'
-                        source.enabled = False
                         source.file = self
-                        source.ident = f'{self.ident}-{self.source_count}'
-                        self.sources[self.source_count] = source
-                        self.items.append(source)
+                        
 
                     elif name_line:
                         name = ':'.join(line.split(':')[1:])
@@ -232,8 +242,8 @@ class SourceFile:
                         if name:
                             if not source.name:
                                 source.name = name
-                            if source.types == [util.AptSourceType.SOURCE]:
-                                source.name = f'{name} Source code'
+                                if source.types == [util.AptSourceType.SOURCE]:
+                                    source.name = f'{name} Source code'
                         source.enabled = True
                         source.file = self
                         source.ident = f'{self.ident}-{self.source_count}'
@@ -365,6 +375,11 @@ class SourceFile:
     @property
     def ident(self) -> str:
         """str: the name of the file on disk."""
+        if not self._ident:
+            try:
+                self._ident = self.sources[0]
+            except KeyError:
+                raise SourceFileError('SourceFile has no ident assigned.')
         return self._ident
     
     @ident.setter
@@ -376,6 +391,8 @@ class SourceFile:
     @property
     def format(self) -> str:
         """str: the format of the file, either `list`, `sources`, or `none`"""
+        if not self._format:
+            self._format = self.detect_file_format()
         return self._format
     
     @format.setter
