@@ -247,6 +247,7 @@ class SourceFile:
                 # Find Deb822 sources
                 valid_keys = [
                     'X-Repolib-Name:',
+                    'X-Repolib-Ident:',
                     'X-Repolib-Default-Mirror:',
                     'Enabled:',
                     'Types:',
