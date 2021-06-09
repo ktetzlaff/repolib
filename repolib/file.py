@@ -50,16 +50,19 @@ class SourceFile:
         :ident str: The name of the file (without the extension)
         :form str: The format of the file (either `deb` or `legacy`)
     """
-    def __init__(self, ident: str = ''):
+    def __init__(self, ident: str = '', fail_errors:bool = False):
         self.ident = ident
         self.comments: Dict[int, str] = {}
-        self.format: str = self.detect_file_format()
         self.source_path: Path = util.get_sources_dir() / f'{self.ident}.{self.format}'
         self.items = ['## Added/managed by Repolib', '']
         self.sources: dict = {}
         self.key_file: Path = util.get_keys_dir() / f'{self.ident}.gpg'
+
+        if self.ident:
+            self.format = self.detect_file_format(fail_errors=fail_errors)
+            self.load_from_file()
     
-    def detect_file_format(self) -> str:
+    def detect_file_format(self, fail_errors:bool = False) -> str:
         """ Detect the format of the file based on the file extension.
 
         Returns:
@@ -80,7 +83,12 @@ class SourceFile:
         if self.path.exists():
             return 'list'
         
-        # If the file doesn't exsit, return none
+        # If the file doesn't exsit, error out or return none
+        if fail_errors:
+            raise SourceFileError(
+                f'File {self.ident}.sources or {self.ident}.list does not exist.'
+            )
+
         return 'none' 
     
     def save_to_disk(self, save: bool = True, skip_keys: bool = False):
@@ -146,7 +154,7 @@ class SourceFile:
                 if self.format == 'list':
                     output += f'{item.make_debline()}\n'
                 else:
-                    output += f'{item.save_output()}\n'
+                    output += f'{item.save_string()}\n'
             except AttributeError:
                 output += f'{item}\n'
         
@@ -166,11 +174,24 @@ class SourceFile:
         
         if not source.ident:
             if source.types == ['deb']:
-                source.ident = f'binary'
+                source.ident = f'{self.ident}/binary'
             elif source.types == ['deb-src']:
-                source.ident = f'source'
+                source.ident = f'{self.ident}/source'
+        
+        return source
     
-    def load_deb_sources(self, ident: str = ''):
+    def _dedup_file_idents(self, source, source_count: int):
+        """ Check the current sources and see if the ident is same."""
+        for src in self.sources.values():
+            if not src._compare_ident(source):
+                source.ident = source_count
+        
+        if not source.ident:
+            source.ident = f'{source_count}'
+        
+        return source
+    
+    def load_from_file(self, ident: str = ''):
         """ Parses the contents of the file.
 
         Optionally use ident if one hasn't been supplied yet.
@@ -190,7 +211,12 @@ class SourceFile:
             filestem: str
 
         if not filestem:
-            raise SourceFileError(f'No filename provided to load: {self.ident}')
+            raise SourceFileError(f'No filename provided to load.')
+        
+        if self.format == 'none':
+            raise SourceFileError(
+                f'File {self.ident}.sources or {self.ident}.list does not exist.'
+            )
 
         with open(self.source_path, 'r') as source_file:
             source_list = source_file.readlines()
@@ -206,8 +232,8 @@ class SourceFile:
                 commented = line.startswith('#')
                 # Find commented out lines
                 if commented:
-                    # Exclude disabled legacy deblines.
                     name_line = line.startswith('## X-Repolib-Name: ')
+                    # Exclude disabled legacy deblines.
                     valid_legacy = util.validate_debline(line.strip())
                     if not valid_legacy and not name_line:
                         self.items.append(line.strip())
@@ -219,9 +245,11 @@ class SourceFile:
                                 'contains DEB822-format sources. This is not '
                                 'allowed. Please fix the file manually.'
                             )
-                        source = Source()
-                        source.parse_debline(line)
-                        source.file = self
+                        new_source = self._line_to_source(line)
+                        print('Deduping file idents')
+                        self._dedup_file_idents(new_source, self.source_count)
+                        self.sources[self.source_count] = new_source
+                        self.items.append(new_source)
                         
 
                     elif name_line:
@@ -233,22 +261,15 @@ class SourceFile:
                     if util.validate_debline(line.strip()):
                         if self.format != 'list':
                             raise SourceFileError(
-                                f'File {self.ident} is a Legacy file, but contains'
-                                'DEB822-format sources. This is not allowed. Please '
-                                'fix the file manually.'
+                                f'File {self.ident} is a Legacy file, but '
+                                'contains DEB822-format sources. This is not '
+                                'allowed. Please fix the file manually.'
                             )
-                        source = Source()
-                        source.parse_debline(line)
-                        if name:
-                            if not source.name:
-                                source.name = name
-                                if source.types == [util.AptSourceType.SOURCE]:
-                                    source.name = f'{name} Source code'
-                        source.enabled = True
-                        source.file = self
-                        source.ident = f'{self.ident}-{self.source_count}'
-                        self.sources[self.source_count] = source
-                        self.items.append(source)
+                        new_source = self._line_to_source(line)
+                        print('Deduping file idents')
+                        self._dedup_file_idents(new_source, self.source_count)
+                        self.sources[self.source_count] = new_source
+                        self.items.append(new_source)
 
                 # Empty lines count as comments
                 if line.strip() == '':
@@ -289,6 +310,12 @@ class SourceFile:
                             )
                         parsing_deb822 = True
                         raw_822.append(item)
+                        try:
+                            if self.items[-1].strip().startswith('#'):
+                                source_comment = self.items.pop(-1)
+                                raw_822.append(source_comment)
+                        except IndexError:
+                            pass
                         raw_822.append(line.strip())
                         continue
 
@@ -297,11 +324,13 @@ class SourceFile:
             elif parsing_deb822:
                 # 822 Sources are ended with a blank line
                 if line.strip() == '':
+                    print(raw_822)
                     parsing_deb822 = False
                     source = Source()
                     source.load_from_data(raw_822[1:])
                     source.file = self
-                    source.ident = f'{self.ident}-{self.source_count}'
+                    print('Deduping file idents')
+                    self._dedup_file_idents(source, self.source_count)
                     self.sources[self.source_count] = source
                     self.items.append(source)
                     raw_822 = []
@@ -315,12 +344,21 @@ class SourceFile:
             parsing_deb822 = False
             source = Source()
             source.load_from_data(raw_822[1:])
-            source.ident = f'{self.ident}-{self.source_count}'
+            print('Deduping file idents')
+            self._dedup_file_idents(source, self.source_count)
             self.sources[self.source_count] = source
             self.items.append(source)
             raw_822 = []
             item += 1
             self.items.append('')
+    
+    def default_ident(self):
+        """ Make a default ident for a source.
+
+        Has some cheeky rules for generating a default source name.
+        """
+        if self.ident == 'system':
+            return 'sources'
 
     def get_source_index(self, source: Source = None, ident:str = None) -> int:
         """ Get the index of a source, given the actual source or the ident.

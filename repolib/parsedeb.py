@@ -125,7 +125,7 @@ def parse_name_ident(comment:str) -> tuple:
             ident (str): The detected ident, or None
             comment (str): The string with the name removed
     """
-    comment = strip_hashes(comment)
+    comment = util.strip_hashes(comment)
 
     # Used for sanity checking later
     has_name = 'X-Repolib-Name:' in comment
@@ -185,24 +185,6 @@ def parse_name_ident(comment:str) -> tuple:
         )
 
     return name, ident, comment
-
-def strip_hashes(line:str) -> str:
-    """ Strips the leading #'s from the given line.
-    
-    Arguments:
-        line (str): The line to strip.
-    
-    Returns:
-        (str): The input line without any leading/trailing hashes or 
-            leading/trailing whitespace.
-    """
-    while True:
-        line = line.strip('#')
-        line = line.strip()
-        if not line.startswith('#'):
-            break
-    
-    return line
 
 
 class ParseDeb:
@@ -320,7 +302,7 @@ class ParseDeb:
         
         if line.startswith('#'):
             line_parsed['enabled'] = False
-            line = strip_hashes(line)
+            line = util.strip_hashes(line)
             parts = line.split()
             if not parts[0] in ['deb', 'deb-src']:
                 raise ParseDebError(f'Current line "{self.curr_line}" is invalid')

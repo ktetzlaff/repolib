@@ -86,12 +86,10 @@ class Source(deb822.Deb822):
     uri_re = re.compile(r'\w+:(\/?\/?)[^\s]+')
     debline_parser = ParseDeb()
 
-    def __init__(self, *args, line:str = None, ident:str = None, **kwargs):
+    def __init__(self, *args, line:str = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.init_values()
         self.file = None
-        if ident:
-            self.ident = ident
         if line:
             self.parse_debline(line)
 
@@ -118,7 +116,8 @@ class Source(deb822.Deb822):
         """
         self.init_values()
         if data[0].strip().startswith('#'):
-            self.comment = data.pop(0)
+            comment = util.strip_hashes(data.pop(0))
+            self.comment = comment
             
         super().__init__(sequence=data)
     
@@ -179,7 +178,9 @@ class Source(deb822.Deb822):
         Returns:
             str: The generated string.
         """
-        save_output = f'# {self.comment}\n'
+        save_output:str = ''
+        if self.comment:
+            save_output = f'# {self.comment}\n'
         save_output += self.dump()
         return save_output
     
@@ -335,10 +336,10 @@ class Source(deb822.Deb822):
     @property
     def ident(self) -> str:
         """ str: The unique identifier for this source within its file"""
-        if not self['X-Repolib-Ident']:
+        try:
+            return self['X-Repolib-Ident']
+        except KeyError:
             return ''
-        
-        return self['X-Repolib-Ident']
     
     @ident.setter
     def ident (self, ident: str) -> None:
