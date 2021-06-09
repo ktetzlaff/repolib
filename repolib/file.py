@@ -132,10 +132,7 @@ class SourceFile:
         except PermissionError:
             bus = dbus.SystemBus()
             privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
-            privileged_object.delete_source(
-                f"{self.ident}.{self.format}",
-                'None'
-            )
+            privileged_object.delete_source_file(f"{self.ident}.{self.format}")
         
         if self.format == 'list':
             self.format = 'sources'
