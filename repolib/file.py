@@ -181,7 +181,7 @@ class SourceFile:
         """ Check the current sources and see if the ident is same."""
         for src in self.sources.values():
             if not src._compare_ident(source):
-                source.ident = source_count
+                source.ident = f'{source_count}'
         
         if not source.ident:
             source.ident = f'{source_count}'
