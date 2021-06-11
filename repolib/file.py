@@ -171,22 +171,22 @@ class SourceFile:
         
         if not source.ident:
             if source.types == ['deb']:
-                source.ident = f'{self.ident}/binary'
+                source.ident = f'binary'
             elif source.types == ['deb-src']:
-                source.ident = f'{self.ident}/source'
+                source.ident = f'source'
         
         return source
     
-    def _dedup_file_idents(self, source, source_count: int):
-        """ Check the current sources and see if the ident is same."""
+    def _dedup_file_idents(self, other_source, source_count: int):
+        """ Check the current other_sources and see if the ident is same."""
         for src in self.sources.values():
-            if not src._compare_ident(source):
-                source.ident = f'{source_count}'
+            if src.ident == other_source.ident:
+                other_source.ident += f'-{source_count}'
         
-        if not source.ident:
-            source.ident = f'{source_count}'
+        if not other_source.ident:
+            other_source.ident = f'{source_count}'
         
-        return source
+        return other_source
     
     def load_from_file(self, ident: str = ''):
         """ Parses the contents of the file.
@@ -243,7 +243,6 @@ class SourceFile:
                                 'allowed. Please fix the file manually.'
                             )
                         new_source = self._line_to_source(line)
-                        print('Deduping file idents')
                         self._dedup_file_idents(new_source, self.source_count)
                         self.sources[self.source_count] = new_source
                         self.items.append(new_source)
@@ -263,7 +262,6 @@ class SourceFile:
                                 'allowed. Please fix the file manually.'
                             )
                         new_source = self._line_to_source(line)
-                        print('Deduping file idents')
                         self._dedup_file_idents(new_source, self.source_count)
                         self.sources[self.source_count] = new_source
                         self.items.append(new_source)
@@ -326,7 +324,6 @@ class SourceFile:
                     source = Source()
                     source.load_from_data(raw_822[1:])
                     source.file = self
-                    print('Deduping file idents')
                     self._dedup_file_idents(source, self.source_count)
                     self.sources[self.source_count] = source
                     self.items.append(source)
@@ -341,7 +338,6 @@ class SourceFile:
             parsing_deb822 = False
             source = Source()
             source.load_from_data(raw_822[1:])
-            print('Deduping file idents')
             self._dedup_file_idents(source, self.source_count)
             self.sources[self.source_count] = source
             self.items.append(source)
@@ -355,7 +351,7 @@ class SourceFile:
         Has some cheeky rules for generating a default source name.
         """
         if self.ident == 'system':
-            return 'sources'
+            return 'main'
 
     def get_source_index(self, source: Source = None, ident:str = None) -> int:
         """ Get the index of a source, given the actual source or the ident.
