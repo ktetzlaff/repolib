@@ -388,6 +388,7 @@ class SourceFile:
         self.items.append(source)
         self.sources[self.source_count] = source
         source.file = self
+        self.key.add_key(source.ident, source.key_data)
     
     def remove_source(self, index: int, errors: bool = False):
         """ Remove a source from this file.
