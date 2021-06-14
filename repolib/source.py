@@ -332,6 +332,17 @@ class Source(deb822.Deb822):
                 return False
         return True
 
+    @property
+    def key_data(self) -> bytes:
+        """ bytes: The data containing the signing key for this source. 
+        
+        Since base sources don't have keys, we skip this in this class.
+
+        In subclasses which add key files, be sure to return the encoded bytes.
+        Otherwise things may not work.
+        """
+        return None
+        
     
     @property
     def ident(self) -> str:
