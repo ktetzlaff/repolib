@@ -292,6 +292,14 @@ class PPASource(source.Source):
                 privileged_object = bus.get_object('org.pop_os.repolib', '/Repo')
                 export_cmd += [str(self.key_file)]
                 privileged_object.add_apt_signing_key(export_cmd)
+    
+    @property
+    def key_data(self) -> bytes:
+        """ Fetch the data from Launchpad and return it. """
+        key_data = self.ppa.trustedparts_content
+
+        if key_data:
+            return key_data.encode()
 
 
 def get_info_from_lp(owner_name, ppa):
