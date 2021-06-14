@@ -58,7 +58,9 @@ class Key:
             key_filename = f'{self.ident}_{source}.gpg'
             key_path = keys_dir / key_filename
             key_data = self.keys[source]
-
+            if not key_data:
+                continue
+            
             with open(key_path, mode='wb') as key_file:
                 key_file.write(key_data)
                 written.append(source)

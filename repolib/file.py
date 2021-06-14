@@ -28,6 +28,7 @@ from pathlib import Path
 import dbus
 
 from .source import Source
+from .key import Key
 from .deb import DebLine
 from . import util
 
@@ -57,6 +58,7 @@ class SourceFile:
         self.items = ['## Added/managed by Repolib', '']
         self.sources: dict = {}
         self.key_file: Path = util.get_keys_dir() / f'{self.ident}.gpg'
+        self.key = Key(self.ident)
 
         if self.ident:
             self.format = self.detect_file_format(fail_errors=fail_errors)
